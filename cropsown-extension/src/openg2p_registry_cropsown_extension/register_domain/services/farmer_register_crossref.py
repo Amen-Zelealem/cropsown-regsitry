@@ -117,11 +117,29 @@ async def _farmer_exists_active(farmer_id: str, cfg: dict) -> bool:
         return found.first() is not None
 
 
-async def _precreate_draft_shell(internal_record_id: str, farmer_id: str, farmer_name: str, fayda: str | None) -> None:
-    """A hidden (INACTIVE) shell so the REGISTER-section CR is viewable/approvable."""
+async def _draft_shell_for(farmer_id: str, farmer_name: str, fayda: str | None) -> str:
+    """internal_record_id of a hidden (INACTIVE) DRAFT shell for this farmer, so
+    the REGISTER-section CR is viewable/approvable before the row is visible.
+
+    Reuses a non-ACTIVE shell left by an earlier attempt whose change-request
+    creation failed — a retry then re-points at that same row instead of
+    inserting a second one (which would orphan the first and, under a unique
+    functional_record_id, fail outright). Creates one only when none exists."""
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     search_text = " ".join(x for x in (farmer_id, farmer_name, fayda or "") if x).strip()
     async with _sessionmaker()() as session:
+        existing = await session.execute(
+            text(
+                "SELECT internal_record_id FROM g2p_register_farmers "
+                "WHERE functional_record_id = :fid AND record_status <> 'ACTIVE' "
+                "ORDER BY created_at LIMIT 1"
+            ),
+            {"fid": farmer_id},
+        )
+        row = existing.first()
+        if row:
+            return row[0]
+        internal_record_id = uuid.uuid4().hex
         await session.execute(
             text(
                 "INSERT INTO g2p_register_farmers "
@@ -134,6 +152,7 @@ async def _precreate_draft_shell(internal_record_id: str, farmer_id: str, farmer
             {"irid": internal_record_id, "fid": farmer_id, "name": farmer_name, "st": search_text, "now": now},
         )
         await session.commit()
+        return internal_record_id
 
 
 def _cr_fields(farmer_id: str, fields: dict, farmer_name: str) -> dict:
@@ -194,8 +213,7 @@ async def raise_farmer_change_request(submission_id: str, bearer_token: str | No
             fields = to_farmer_fields(personal)
             farmer_name = compose_farmer_name(fields.get("first_name"), fields.get("middle_name"), fields.get("last_name"))
 
-            internal_record_id = uuid.uuid4().hex
-            await _precreate_draft_shell(internal_record_id, farmer_id, farmer_name, fields.get("fayda_fan_id"))
+            internal_record_id = await _draft_shell_for(farmer_id, farmer_name, fields.get("fayda_fan_id"))
 
             change = ChangePayload(internal_record_id=internal_record_id, edit_action="ADD")
             payload_fields = _cr_fields(farmer_id, fields, farmer_name)

@@ -1,4 +1,15 @@
-INSERT INTO "public"."g2p_register_ui_tabs" ("tab_id","register_id","tab_label","tab_order","is_active") VALUES 
+-- Intake-form columns added after the initial release. Idempotent: a no-op on a
+-- fresh database (create_all already made them with a server_default), and on an
+-- existing database it adds them with defaults so current rows and the inserts
+-- below both get a value.
+ALTER TABLE IF EXISTS "public"."g2p_register_ui_tabs"
+    ADD COLUMN IF NOT EXISTS "used_for_new_intake_form" boolean NOT NULL DEFAULT true,
+    ADD COLUMN IF NOT EXISTS "no_of_verifications_required" integer NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS "intake_form_name" varchar,
+    ADD COLUMN IF NOT EXISTS "intake_form_description" varchar,
+    ADD COLUMN IF NOT EXISTS "intake_form_auto_approve" boolean NOT NULL DEFAULT false;
+
+INSERT INTO "public"."g2p_register_ui_tabs" ("tab_id","register_id","tab_label","tab_order","is_active") VALUES
 ('cropsown_cropsown_tab','6b06a95a-9a6c-5a33-a33d-c1625716c59c','cropsown_record_tab',0,'TRUE'),
 ('cropsown_planning_tab','6b06a95a-9a6c-5a33-a33d-c1625716c59c','cropsown_planning_tab',10,'TRUE'),
 ('cropsown_cultivation_tab','6b06a95a-9a6c-5a33-a33d-c1625716c59c','cropsown_cultivation_tab',20,'TRUE'),

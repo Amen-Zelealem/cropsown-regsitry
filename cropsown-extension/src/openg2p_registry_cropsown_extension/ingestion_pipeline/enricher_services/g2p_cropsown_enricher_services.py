@@ -84,6 +84,29 @@ def _mint_consent_jws(farmer_id: str) -> str:
     return jws
 
 
+def _sign_request(header: Dict, message: Dict) -> str:
+    """Detached JWS over the canonical ``{header, message}`` — the request-level
+    signature the Farmer Registry verifies when partner-signature validation is
+    enabled (the consent JWS inside the request is a separate, consent-only
+    signature and does not cover the envelope). Signed with the same partner key
+    as the consent. Falls back to a non-signature marker only when no signing key
+    is configured (signature-validation-off deployments)."""
+    if not (CM_SIGNING_KEY_PEM and CM_SIGNING_KID):
+        return "cropsown-dci"
+    from cryptography.hazmat.primitives.serialization import load_pem_private_key
+    from jwt.api_jws import PyJWS
+
+    priv = load_pem_private_key(CM_SIGNING_KEY_PEM.encode("utf-8"), password=None)
+    token = PyJWS().encode(
+        _canonical_bytes({"header": header, "message": message}),
+        priv, algorithm=CM_SIGNING_ALG, headers={"kid": CM_SIGNING_KID},
+    )
+    # Detach by dropping the payload segment (registry verifies over the
+    # base64url payload it re-serialises), matching farmer_registry_enrichment.
+    protected, _, signature = token.split(".")
+    return f"{protected}..{signature}"
+
+
 def _build_dci_search_envelope(farmer_id: str) -> Dict:
     """Build a DCI sync-search envelope that looks a Farmer up by its id."""
     now = datetime.now(timezone.utc).isoformat()
@@ -100,30 +123,29 @@ def _build_dci_search_envelope(farmer_id: str) -> Dict:
     if consent_jws:
         # PEP reads the partner-signed consent from here and forwards it to CM.
         search_criteria["authorize"] = {"consent_jws": consent_jws}
-    return {
-        "signature": "cropsown-dci",
-        "header": {
-            "version": "1.0.0",
-            "message_id": uuid.uuid4().hex,
-            "message_ts": now,
-            "action": "search",
-            "sender_id": FARMER_DCI_SENDER_ID,
-            "receiver_id": "farmer-registry",
-            "total_count": 1,
-            "is_msg_encrypted": False,
-        },
-        "message": {
-            "transaction_id": uuid.uuid4().hex,
-            "search_request": [
-                {
-                    "reference_id": "cropsown-enrich-1",
-                    "timestamp": now,
-                    "locale": "eng",
-                    "search_criteria": search_criteria,
-                }
-            ],
-        },
+    header = {
+        "version": "1.0.0",
+        "message_id": uuid.uuid4().hex,
+        "message_ts": now,
+        "action": "search",
+        "sender_id": FARMER_DCI_SENDER_ID,
+        "receiver_id": "farmer-registry",
+        "total_count": 1,
+        "is_msg_encrypted": False,
     }
+    message = {
+        "transaction_id": uuid.uuid4().hex,
+        "search_request": [
+            {
+                "reference_id": "cropsown-enrich-1",
+                "timestamp": now,
+                "locale": "eng",
+                "search_criteria": search_criteria,
+            }
+        ],
+    }
+    # Signed last — any change to header/message after this invalidates it.
+    return {"signature": _sign_request(header, message), "header": header, "message": message}
 
 
 def _fetch_farmer_from_registry(farmer_id: str) -> Dict:

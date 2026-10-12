@@ -179,6 +179,10 @@ class G2PRegisterDomainServiceCropSown(G2PRegisterDomainService):
         farmer_registry_enrichment.fetch_farmer_record)."""
         farmer_id = record.get("farmer_id")
         fayda = record.get("fayda_fan_id") or record.get("fayda_id")
+        # Normalise the legacy space-grouped Fayda to digits-only before lookup —
+        # the Farmer Registry's foundational_id is stored without spaces.
+        if not is_blank(fayda):
+            fayda = re.sub(r"\s+", "", str(fayda))
         if is_blank(farmer_id) and is_blank(fayda):
             return
         personal = await fetch_farmer_record(farmer_id, fayda)
@@ -292,10 +296,14 @@ class G2PRegisterDomainServiceCropSown(G2PRegisterDomainService):
         value = record.get("fayda_fan_id")
         if value is None or str(value).strip() == "":
             return
-        # Fayda FAN / UIN as held by the Farmer Registry's foundational_id: numeric digits.
+        # Accept the legacy space-grouped format (e.g. "1234 5678 9000 3456") by
+        # normalising to digits-only first: the Farmer Registry's foundational_id
+        # is stored without spaces, so this is also what the enrichment lookup uses.
+        normalized = re.sub(r"\s+", "", str(value))
         fyda_pattern = r'^\d{6,20}$'
-        if not re.match(fyda_pattern, str(value).strip()):
+        if not re.match(fyda_pattern, normalized):
             validation_error("Fayda ID (UIN) must be numeric digits, e.g. 4733616459")
+        record["fayda_fan_id"] = normalized
 
     def _validate_land_id(self, record: dict) -> None:
         from .domain_validation_utils import validate_land_id
