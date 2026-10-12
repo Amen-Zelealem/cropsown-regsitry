@@ -378,35 +378,52 @@ def _alias_extension_modules():
     by mirroring any already-loaded submodule, models load exactly once."""
     ext = os.environ.get("REGISTRY_EXTENSION_MODULE", "openg2p_registry_cropsown_extension")
     alias = "openg2p_registry_extensions"
-    try:
-        ext_mod = sys.modules.get(ext) or importlib.import_module(ext)
-        sys.modules[alias] = ext_mod
-        # Import + alias the submodules that must resolve under both names before
-        # any model loads — the model submodules especially (farmer, crop_sown...).
-        for sub in (
-            "config",
-            "ingestion_pipeline",
-            "ingestion_pipeline.enricher_services",
-            "register_domain",
-            "register_domain.models",
-            "register_domain.models.farmer",
-            "register_domain.schemas",
-            "register_domain.services",
-            "register_domain.controllers",
-            "register_domain.factory",
-        ):
-            try:
-                module = sys.modules.get(f"{ext}.{sub}") or importlib.import_module(f"{ext}.{sub}")
-                sys.modules[f"{alias}.{sub}"] = module
-            except Exception:
-                pass
-        # Mirror any other already-loaded ext submodule so nothing resolves twice.
-        for name, module in list(sys.modules.items()):
-            if name.startswith(ext + "."):
-                sys.modules[alias + name[len(ext):]] = module
-        _logger.info("ODK Hook: Aliased %s -> %s (with model submodules)", alias, ext)
-    except Exception as e:
-        _logger.debug("ODK Hook: Error aliasing extension modules: %s", e)
+
+    def _dual(subpath):
+        # Reuse a module already loaded under EITHER name; import once only when
+        # neither is present. Then point BOTH names at that one object, so a later
+        # import under the other name resolves the SAME module and never re-runs a
+        # model definition (which would raise "Table ... is already defined").
+        full_ext = f"{ext}.{subpath}" if subpath else ext
+        full_alias = f"{alias}.{subpath}" if subpath else alias
+        module = sys.modules.get(full_ext) or sys.modules.get(full_alias)
+        if module is None:
+            module = importlib.import_module(full_ext)
+        sys.modules[full_ext] = module
+        sys.modules[full_alias] = module
+        return module
+
+    # Top-level import failure is fatal and must surface (not be swallowed).
+    _dual("")
+    for sub in (
+        "config",
+        "ingestion_pipeline",
+        "ingestion_pipeline.enricher_services",
+        "register_domain",
+        "register_domain.models",
+        "register_domain.models.farmer",
+        "register_domain.schemas",
+        "register_domain.services",
+        "register_domain.controllers",
+        "register_domain.factory",
+    ):
+        try:
+            _dual(sub)
+        except ModuleNotFoundError:
+            # An optional submodule that does not exist is fine; anything else is
+            # logged visibly (at WARNING, not swallowed) since it is the cause of
+            # the double-definition crash downstream.
+            pass
+        except Exception as exc:
+            _logger.warning("ODK Hook: could not alias submodule %s: %s", sub, exc)
+    # Mirror any other already-loaded submodule BOTH ways so neither name resolves
+    # to a second, separately-imported copy.
+    for name, module in list(sys.modules.items()):
+        if name.startswith(ext + "."):
+            sys.modules[alias + name[len(ext):]] = module
+        elif name.startswith(alias + "."):
+            sys.modules[ext + name[len(alias):]] = module
+    _logger.info("ODK Hook: aliased %s <-> %s (model submodules reused, not re-imported)", ext, alias)
 
 
 def _patch_request_response_helper():

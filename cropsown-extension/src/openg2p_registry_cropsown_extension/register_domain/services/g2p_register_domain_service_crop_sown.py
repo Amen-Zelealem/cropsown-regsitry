@@ -185,16 +185,22 @@ class G2PRegisterDomainServiceCropSown(G2PRegisterDomainService):
             fayda = re.sub(r"\s+", "", str(fayda))
         if is_blank(farmer_id) and is_blank(fayda):
             return
-        personal = await fetch_farmer_record(farmer_id, fayda)
-        if not personal:
-            return
-        fields = to_farmer_fields(personal)
-        name = compose_farmer_name(fields.get("first_name"), fields.get("middle_name"), fields.get("last_name"))
-        if name:
-            record["farmer_name"] = name
-        if not is_blank(fields.get("fayda_fan_id")) and is_blank(record.get("fayda_fan_id")):
-            record["fayda_fan_id"] = fields["fayda_fan_id"]
-        _logger.info("Enriched crop_sown farmer %s from Farmer Registry: name=%s", farmer_id, name)
+        # Best-effort: a config, lookup, or field-conversion problem must not block
+        # submit — log and keep the operator's typed values. Only the in-memory
+        # record dict is touched here; no DB write happens in this method.
+        try:
+            personal = await fetch_farmer_record(farmer_id, fayda)
+            if not personal:
+                return
+            fields = to_farmer_fields(personal)
+            name = compose_farmer_name(fields.get("first_name"), fields.get("middle_name"), fields.get("last_name"))
+            if name:
+                record["farmer_name"] = name
+            if not is_blank(fields.get("fayda_fan_id")) and is_blank(record.get("fayda_fan_id")):
+                record["fayda_fan_id"] = fields["fayda_fan_id"]
+            _logger.info("Enriched crop_sown farmer %s from Farmer Registry: name=%s", farmer_id, name)
+        except Exception as exc:
+            _logger.warning("CropSown farmer enrichment skipped for %s (kept typed values): %r", farmer_id, exc)
 
     async def _validate_fayda_season_and_year(self, record: dict, session) -> None:
         """

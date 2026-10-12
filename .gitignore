@@ -288,3 +288,7 @@ openg2p-connector-service/celerybeat-schedule*
 
 # CI checkout of the dashboard service (Jenkinsfile, stage "Checkout dashboard-api").
 .build/
+
+# Partner signing keys (Farmer Registry enrichment), mounted at /run/secrets/cropsown
+local/secrets/*
+!local/secrets/.gitkeep

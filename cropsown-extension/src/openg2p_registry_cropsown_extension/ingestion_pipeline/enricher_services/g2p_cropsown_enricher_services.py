@@ -19,6 +19,8 @@ _logger = logging.getLogger('g2p-payload-enricher-service')
 FARMER_REGISTRY_DCI_URL = os.environ.get("CROPSOWN_FARMER_DCI_URL", "").strip()
 # Our onboarded Partner Management identity (sender_id + signing kid).
 FARMER_DCI_SENDER_ID = os.environ.get("CROPSOWN_DCI_SENDER_ID", "cropsown")
+# Receiver id is env-driven (not hardcoded) and shared with the web lookup.
+FARMER_DCI_RECEIVER_ID = os.environ.get("CROPSOWN_DCI_RECEIVER_ID", "farmer-registry")
 FARMER_DCI_TIMEOUT = float(os.environ.get("CROPSOWN_DCI_TIMEOUT", "15"))
 FARMER_DCI_SUBJECT_ID_TYPE = os.environ.get("CROPSOWN_DCI_SUBJECT_ID_TYPE", "fayda_fan_id")
 # Optional: a pre-minted compact consent JWS to embed. If empty, we mint and
@@ -31,10 +33,22 @@ FARMER_DCI_CONSENT_JWS = os.environ.get("CROPSOWN_DCI_CONSENT_JWS", "")
 # PM-registered private key (kid); CM /validate verifies the signature against
 # the public key PM serves, checks policy, and permits — minting the artefact.
 CM_SIGNING_KEY_PEM = os.environ.get("CROPSOWN_CM_SIGNING_KEY_PEM", "")
+# Support a mounted key file too (same as the web lookup), so a deployment that
+# only sets CROPSOWN_CM_SIGNING_KEY_PATH still signs instead of sending the
+# "cropsown-dci" placeholder.
+CM_SIGNING_KEY_PATH = os.environ.get("CROPSOWN_CM_SIGNING_KEY_PATH", "").strip()
+if not CM_SIGNING_KEY_PEM and CM_SIGNING_KEY_PATH:
+    try:
+        with open(CM_SIGNING_KEY_PATH, encoding="utf-8") as _key_file:
+            CM_SIGNING_KEY_PEM = _key_file.read()
+    except OSError as _key_exc:
+        _logger.warning("CropSown enricher: cannot read signing key %s: %s", CM_SIGNING_KEY_PATH, _key_exc)
 CM_SIGNING_KID = os.environ.get("CROPSOWN_CM_SIGNING_KID", "")
 CM_PARTNER_AUD = os.environ.get("CROPSOWN_CM_PARTNER_AUD", "")
 CM_CONTROLLER_ID = os.environ.get("CROPSOWN_CM_CONTROLLER_ID", "")
-CM_DATA_SCOPES = [s for s in os.environ.get("CROPSOWN_CM_SCOPES", "farmer_profile.basic").split(",") if s]
+# Must match the response field read downstream (farmer_personal_details) so
+# consent scope filtering does not strip it.
+CM_DATA_SCOPES = [s for s in os.environ.get("CROPSOWN_CM_SCOPES", "farmer_personal_details").split(",") if s]
 CM_SIGNING_ALG = os.environ.get("CROPSOWN_CM_ALG", "EdDSA")
 CM_CONSENT_PURPOSE = os.environ.get("CROPSOWN_CM_PURPOSE", "share_farm_profile")
 CM_CONSENT_VALIDITY_DAYS = int(os.environ.get("CROPSOWN_CM_VALIDITY_DAYS", "1"))
@@ -107,19 +121,28 @@ def _sign_request(header: Dict, message: Dict) -> str:
     return f"{protected}..{signature}"
 
 
-def _build_dci_search_envelope(farmer_id: str) -> Dict:
-    """Build a DCI sync-search envelope that looks a Farmer up by its id."""
+def _build_dci_search_envelope(farmer_id: str | None, fayda: str | None = None) -> Dict:
+    """Build a DCI sync-search envelope. Uses an expression query with an $eq on
+    functional_record_id (Farmer ID) AND/OR foundational_id (Fayda) — the same
+    exact-match the web lookup uses, so when both ids are supplied a record is
+    returned only when both belong to the same farmer (no ambiguous match)."""
     now = datetime.now(timezone.utc).isoformat()
+    query: Dict = {}
+    fid = (farmer_id or "").strip()
+    fyd = (fayda or "").strip()
+    if fid:
+        query["functional_record_id"] = {"$eq": fid}
+    if fyd:
+        query["foundational_id"] = {"$eq": fyd}
+    subject = fyd or fid
     search_criteria: Dict = {
         "version": "1.0.0",
         "reg_type": "Farmer",
         "reg_record_type": "Farmer",
-        "query_type": "idtype-value",
-        # The registry resolves this to a search_text match; the Fayda/UIN is what
-        # lives in the farmer record's search_text, so search by that value.
-        "query": {"type": "idtype-value", "value": {"id_type": FARMER_DCI_SUBJECT_ID_TYPE, "id_value": farmer_id}},
+        "query_type": "expression",
+        "query": {"type": "expression", "value": {"expression": {"query": query}}},
     }
-    consent_jws = FARMER_DCI_CONSENT_JWS or _mint_consent_jws(farmer_id)
+    consent_jws = FARMER_DCI_CONSENT_JWS or _mint_consent_jws(subject)
     if consent_jws:
         # PEP reads the partner-signed consent from here and forwards it to CM.
         search_criteria["authorize"] = {"consent_jws": consent_jws}
@@ -129,7 +152,7 @@ def _build_dci_search_envelope(farmer_id: str) -> Dict:
         "message_ts": now,
         "action": "search",
         "sender_id": FARMER_DCI_SENDER_ID,
-        "receiver_id": "farmer-registry",
+        "receiver_id": FARMER_DCI_RECEIVER_ID,
         "total_count": 1,
         "is_msg_encrypted": False,
     }
@@ -148,24 +171,38 @@ def _build_dci_search_envelope(farmer_id: str) -> Dict:
     return {"signature": _sign_request(header, message), "header": header, "message": message}
 
 
-def _fetch_farmer_from_registry(farmer_id: str) -> Dict:
-    """Call the Farmer Registry DCI endpoint and return the first reg_record.
+def _fetch_farmer_from_registry(farmer_id: str | None, fayda: str | None = None) -> Dict:
+    """The one Farmer reg_record matching the given id(s), or {} when there is no
+    single unambiguous match.
 
     SYNC on purpose — the enricher runs inside a sync celery task with a sync
-    SQLAlchemy session, so an async client cannot be awaited here.
-    """
-    envelope = _build_dci_search_envelope(farmer_id)
+    SQLAlchemy session, so an async client cannot be awaited here. Requires the
+    header not rejected, the response item 'succ', and EXACTLY one record — an
+    ambiguous (0 or >1) result is ignored rather than guessed."""
+    envelope = _build_dci_search_envelope(farmer_id, fayda)
     with httpx.Client(timeout=FARMER_DCI_TIMEOUT) as client:
         resp = client.post(FARMER_REGISTRY_DCI_URL, json=envelope)
         resp.raise_for_status()
         body = resp.json()
-    status = ((body.get("header") or {}).get("status"))
-    if status == "rjct":
-        reason = (body.get("header") or {}).get("status_reason_message")
-        raise ValueError(f"Farmer Registry DCI rejected the search: {reason}")
-    search_response = (body.get("message") or {}).get("search_response") or []
-    records = (search_response[0].get("data") or {}).get("reg_records") if search_response else []
-    return (records or [{}])[0]
+    if not isinstance(body, dict):
+        return {}
+    header = body.get("header") if isinstance(body.get("header"), dict) else {}
+    if header.get("status") == "rjct":
+        raise ValueError(f"Farmer Registry DCI rejected the search: {header.get('status_reason_message')}")
+    message = body.get("message") if isinstance(body.get("message"), dict) else {}
+    search_response = message.get("search_response")
+    search_response = search_response if isinstance(search_response, list) else []
+    item = search_response[0] if search_response and isinstance(search_response[0], dict) else {}
+    data = item.get("data") if isinstance(item.get("data"), dict) else {}
+    records = data.get("reg_records")
+    records = records if isinstance(records, list) else []
+    if item.get("status") != "succ" or len(records) != 1:
+        _logger.info(
+            "Farmer Registry DCI returned %s record(s) (status=%s) for id=%s fayda=%s — no unambiguous match",
+            len(records), item.get("status"), farmer_id, fayda,
+        )
+        return {}
+    return records[0] if isinstance(records[0], dict) else {}
 
 
 def _map_farmer_to_cropsown(dci_record: Dict) -> Dict:
@@ -205,16 +242,20 @@ class G2PDciCropSownCreateEnricherService(G2PPayloadEnricherInterface):
             _logger.info("CROPSOWN_FARMER_DCI_URL not set — skipping Farmer Registry enrichment")
             return data
 
-        farmer_id = data.get("fayda_fan_id") or data.get("farmer_id")
-        if not farmer_id:
+        farmer_id = data.get("farmer_id")
+        fayda = data.get("fayda_fan_id")
+        if not farmer_id and not fayda:
             _logger.info("No farmer_id/fayda_fan_id in payload — nothing to enrich")
             return data
 
-        _logger.info("Enriching crop sown record via Farmer Registry for id=%s", farmer_id)
+        _logger.info("Enriching crop sown record via Farmer Registry for farmer_id=%s fayda=%s", farmer_id, fayda)
         try:
-            dci_record = _fetch_farmer_from_registry(str(farmer_id).strip())
+            dci_record = _fetch_farmer_from_registry(
+                str(farmer_id).strip() if farmer_id else None,
+                str(fayda).strip() if fayda else None,
+            )
         except Exception as exc:  # fail-closed: don't let a bad fetch corrupt ingest
-            _logger.error("Farmer Registry enrichment failed for id=%s: %s", farmer_id, exc)
+            _logger.error("Farmer Registry enrichment failed for farmer_id=%s fayda=%s: %s", farmer_id, fayda, exc)
             raise
 
         farmer_fields = _map_farmer_to_cropsown(dci_record)

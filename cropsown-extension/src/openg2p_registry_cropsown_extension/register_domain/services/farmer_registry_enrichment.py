@@ -74,6 +74,17 @@ def _config() -> dict | None:
             _logger.warning("CropSown farmer enrichment: cannot read signing key %s: %s", key_path, exc)
             return None
 
+    # Parse the timeout defensively: a bad value like "10s" would otherwise raise
+    # ValueError out of _config and escape into submit. Skip enrichment instead.
+    raw_timeout = _setting("CROPSOWN_FARMER_DCI_TIMEOUT", "10") or "10"
+    try:
+        timeout = float(raw_timeout)
+    except (TypeError, ValueError):
+        timeout = 0.0
+    if not (timeout > 0 and timeout != float("inf")):
+        _logger.warning("CropSown farmer enrichment: invalid CROPSOWN_FARMER_DCI_TIMEOUT %r — skipping", raw_timeout)
+        return None
+
     cfg = {
         "search_url": _setting("CROPSOWN_FARMER_DCI_URL"),
         "sender_id": _setting("CROPSOWN_DCI_SENDER_ID", "cropsown"),
@@ -83,9 +94,11 @@ def _config() -> dict | None:
         "algorithm": _setting("CROPSOWN_CM_ALG", "EdDSA"),
         "consent_audience": _setting("CROPSOWN_CM_PARTNER_AUD"),
         "consent_data_controller": _setting("CROPSOWN_CM_CONTROLLER_ID", "farmer-registry"),
-        "consent_scopes": [s.strip() for s in _setting("CROPSOWN_CM_SCOPES", "farmer_profile.basic").split(",") if s.strip()],
+        # The response field read below is farmer_personal_details, so the consent
+        # scope requested must be the same — otherwise scope filtering strips it.
+        "consent_scopes": [s.strip() for s in _setting("CROPSOWN_CM_SCOPES", "farmer_personal_details").split(",") if s.strip()],
         "consent_purpose": _setting("CROPSOWN_CM_PURPOSE", "share_farm_profile"),
-        "timeout": float(_setting("CROPSOWN_FARMER_DCI_TIMEOUT", "10") or 10),
+        "timeout": timeout,
     }
     missing = [
         name
@@ -182,36 +195,52 @@ async def fetch_farmer_record(farmer_id: str | None, fayda: str | None = None) -
     """The Farmer Registry's ``farmer_personal_details`` for this farmer, matched
     on BOTH Farmer ID and Fayda FAN ID (both-required). None when enrichment is
     off/misconfigured, the call fails/rejected, or not exactly one match."""
-    cfg = _config()
-    if cfg is None or (is_blank(farmer_id) and is_blank(fayda)):
+    if is_blank(farmer_id) and is_blank(fayda):
         return None
 
+    # Config parse, the HTTP call, AND response-shape parsing are all inside the
+    # fail-open guard: a bad setting, a non-dict envelope (e.g. an upstream "[]"),
+    # or a missing nested field must never escape into submit — they log and skip.
     try:
+        cfg = _config()
+        if cfg is None:
+            return None
         request_body = build_search_request(farmer_id, fayda, cfg)
         async with httpx.AsyncClient(timeout=cfg["timeout"]) as client:
             response = await client.post(cfg["search_url"], json=request_body)
         response.raise_for_status()
         envelope = response.json()
+
+        if not isinstance(envelope, dict):
+            _logger.warning("CropSown farmer lookup (id=%s fayda=%s): unexpected response shape %s", farmer_id, fayda, type(envelope).__name__)
+            return None
+        header = envelope.get("header")
+        header = header if isinstance(header, dict) else {}
+        message = envelope.get("message")
+        message = message if isinstance(message, dict) else {}
+        items = message.get("search_response")
+        items = items if isinstance(items, list) else []
+        item = items[0] if items and isinstance(items[0], dict) else {}
+        data = item.get("data")
+        data = data if isinstance(data, dict) else {}
+        records = data.get("reg_records")
+        records = records if isinstance(records, list) else []
+        if header.get("status") == "rjct" or item.get("status") != "succ" or len(records) != 1:
+            _logger.warning(
+                "CropSown farmer lookup (id=%s fayda=%s) returned %s record(s) (status=%s) — not enriching",
+                farmer_id, fayda, len(records), item.get("status") or header.get("status"),
+            )
+            return None
+
+        record0 = records[0] if isinstance(records[0], dict) else {}
+        personal = record0.get("farmer_personal_details")
+        if not isinstance(personal, dict) or not personal:
+            _logger.warning("CropSown farmer lookup (id=%s fayda=%s): no farmer_personal_details — check consent scopes", farmer_id, fayda)
+            return None
+        return personal
     except Exception as exc:
         _logger.warning("CropSown farmer lookup (id=%s fayda=%s) failed: %r", farmer_id, fayda, exc)
         return None
-
-    header = envelope.get("header") or {}
-    items = (envelope.get("message") or {}).get("search_response") or []
-    item = items[0] if items else {}
-    records = (item.get("data") or {}).get("reg_records") or []
-    if header.get("status") == "rjct" or item.get("status") != "succ" or len(records) != 1:
-        _logger.warning(
-            "CropSown farmer lookup (id=%s fayda=%s) returned %s record(s) (status=%s) — not enriching",
-            farmer_id, fayda, len(records), item.get("status") or header.get("status"),
-        )
-        return None
-
-    personal = (records[0] or {}).get("farmer_personal_details")
-    if not personal:
-        _logger.warning("CropSown farmer lookup (id=%s fayda=%s): no farmer_personal_details — check consent scopes", farmer_id, fayda)
-        return None
-    return personal
 
 
 def _text(value) -> str | None:
@@ -221,10 +250,14 @@ def _text(value) -> str | None:
 def to_farmer_fields(personal: dict) -> dict:
     """The plain Farmer fields carried by a DCI ``farmer_personal_details`` record:
     name parts (together), gender, date_of_birth, mobile_number, fayda_fan_id."""
-    pd = personal or {}
-    demographic = pd.get("demographic_info") or {}
-    name = demographic.get("name") or {}
     fields: dict = {}
+    if not isinstance(personal, dict):
+        return fields
+    pd = personal
+    demographic = pd.get("demographic_info")
+    demographic = demographic if isinstance(demographic, dict) else {}
+    name = demographic.get("name")
+    name = name if isinstance(name, dict) else {}
 
     if not is_blank(name.get("given_name")) or not is_blank(name.get("surname")):
         fields["first_name"] = _text(name.get("given_name"))
@@ -246,8 +279,10 @@ def to_farmer_fields(personal: dict) -> dict:
     if phone:
         fields["mobile_number"] = phone
 
-    ident = (pd.get("member_identifier") or [{}])
-    fayda = (ident[0] or {}).get("identifier_value") if ident else None
+    ident = pd.get("member_identifier")
+    ident = ident if isinstance(ident, list) else []
+    first_ident = ident[0] if ident and isinstance(ident[0], dict) else {}
+    fayda = first_ident.get("identifier_value")
     if not is_blank(fayda):
         fields["fayda_fan_id"] = _text(fayda)
 
