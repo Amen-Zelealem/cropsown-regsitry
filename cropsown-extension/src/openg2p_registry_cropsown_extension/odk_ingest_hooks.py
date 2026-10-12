@@ -368,29 +368,62 @@ async def resolve_geo_label(code: str | None, level_prefix: str = "") -> str | N
 
 
 def _alias_extension_modules():
-    """Ensure openg2p_registry_extensions and all its subpackages alias to cropsown extension."""
+    """Make ``openg2p_registry_extensions`` and the real extension name resolve to
+    the SAME module objects — top-level and every submodule, models included.
+
+    Runs unconditionally (not only when the top-level alias is missing): if the
+    alias exists but a model submodule was imported under only one of the two
+    names, its register tables get defined twice and SQLAlchemy/metadata breaks.
+    By importing each submodule once and pointing both names at that object, and
+    by mirroring any already-loaded submodule, models load exactly once."""
     ext = os.environ.get("REGISTRY_EXTENSION_MODULE", "openg2p_registry_cropsown_extension")
-    if "openg2p_registry_extensions" not in sys.modules:
+    alias = "openg2p_registry_extensions"
+
+    def _dual(subpath):
+        # Reuse a module already loaded under EITHER name; import once only when
+        # neither is present. Then point BOTH names at that one object, so a later
+        # import under the other name resolves the SAME module and never re-runs a
+        # model definition (which would raise "Table ... is already defined").
+        full_ext = f"{ext}.{subpath}" if subpath else ext
+        full_alias = f"{alias}.{subpath}" if subpath else alias
+        module = sys.modules.get(full_ext) or sys.modules.get(full_alias)
+        if module is None:
+            module = importlib.import_module(full_ext)
+        sys.modules[full_ext] = module
+        sys.modules[full_alias] = module
+        return module
+
+    # Top-level import failure is fatal and must surface (not be swallowed).
+    _dual("")
+    for sub in (
+        "config",
+        "ingestion_pipeline",
+        "ingestion_pipeline.enricher_services",
+        "register_domain",
+        "register_domain.models",
+        "register_domain.models.farmer",
+        "register_domain.schemas",
+        "register_domain.services",
+        "register_domain.controllers",
+        "register_domain.factory",
+    ):
         try:
-            sys.modules["openg2p_registry_extensions"] = sys.modules.get(ext) or importlib.import_module(ext)
-            for sub in (
-                "config",
-                "ingestion_pipeline",
-                "ingestion_pipeline.enricher_services",
-                "register_domain",
-                "register_domain.models",
-                "register_domain.schemas",
-                "register_domain.services",
-                "register_domain.controllers",
-                "register_domain.factory",
-            ):
-                try:
-                    sys.modules[f"openg2p_registry_extensions.{sub}"] = importlib.import_module(f"{ext}.{sub}")
-                except Exception:
-                    pass
-            _logger.info("ODK Hook: Aliased openg2p_registry_extensions -> %s", ext)
-        except Exception as e:
-            _logger.debug("ODK Hook: Error aliasing extension modules: %s", e)
+            _dual(sub)
+        except ModuleNotFoundError:
+            # An optional submodule that does not exist is fine; anything else is
+            # logged visibly (at WARNING, not swallowed) since it is the cause of
+            # the double-definition crash downstream.
+            pass
+        except Exception as exc:
+            _logger.warning("ODK Hook: could not alias submodule %s: %s", sub, exc)
+    # Mirror any other already-loaded submodule BOTH ways so neither name resolves
+    # to a second, separately-imported copy.
+    for name, module in list(sys.modules.items()):
+        if name.startswith(ext + "."):
+            sys.modules[alias + name[len(ext):]] = module
+        elif name.startswith(alias + "."):
+            sys.modules[ext + name[len(alias):]] = module
+    _logger.info("ODK Hook: aliased %s <-> %s (model submodules reused, not re-imported)", ext, alias)
 
 
 def _patch_request_response_helper():
@@ -1241,6 +1274,121 @@ def _patch_harvest_service():
         _logger.debug("Could not patch G2PRegisterDomainServiceHarvest: %s", e)
 
 
+# ── Crop-Sown -> Farmer two-CR + ODK auth glue (env-driven, secret-free) ────
+# The two-CR logic lives in register_domain/services/farmer_register_crossref.
+# Here we (1) attach it to the intake service (the staff finalize path) and
+# (2) add the ODK/celery parity: a post-commit wrapper that mints a service
+# token, ensures the intake-submission AWE task, and raises the Farmer CR.
+# Every credential/URL comes ONLY from env — nothing is hard-coded.
+
+
+def _two_cr_enabled() -> bool:
+    return (os.environ.get("CROPSOWN_TWO_CR_ENABLED") or "false").strip().lower() in {"true", "1", "yes"}
+
+
+def _install_two_cr_hooks():
+    """Attach the Crop-Sown -> Farmer two-change-request hooks to the intake service."""
+    try:
+        if not _two_cr_enabled():
+            return
+        from openg2p_registry_core.services.intake_form_data_service import G2PIntakeFormDataService
+        from openg2p_registry_cropsown_extension.register_domain.services.farmer_register_crossref import install
+        install(G2PIntakeFormDataService)
+        _logger.info("ODK Hook: installed Crop-Sown two-CR hooks")
+    except Exception as e:
+        _logger.debug("Could not install two-CR hooks: %s", e)
+
+
+def _odk_mint_service_token():
+    """A bearer token for headless (ODK) finalize via Keycloak password grant.
+    All credentials come from env; returns None when not fully configured."""
+    url = (os.environ.get("CROPSOWN_ODK_KEYCLOAK_URL") or "").strip().rstrip("/")
+    realm = (os.environ.get("CROPSOWN_ODK_KEYCLOAK_REALM") or "").strip()
+    client_id = (os.environ.get("CROPSOWN_ODK_SERVICE_CLIENT_ID") or "").strip()
+    client_secret = (os.environ.get("CROPSOWN_ODK_SERVICE_CLIENT_SECRET") or "").strip()
+    username = (os.environ.get("CROPSOWN_ODK_SERVICE_USERNAME") or "").strip()
+    password = os.environ.get("CROPSOWN_ODK_SERVICE_PASSWORD") or ""
+    if not (url and realm and client_id and username and password):
+        _logger.warning("ODK Hook: service token not configured (set CROPSOWN_ODK_* env) — ODK two-CR skipped")
+        return None
+    try:
+        import httpx
+        data = {"client_id": client_id, "username": username, "password": password,
+                "grant_type": "password", "scope": "openid"}
+        if client_secret:
+            data["client_secret"] = client_secret
+        resp = httpx.post(f"{url}/realms/{realm}/protocol/openid-connect/token", data=data, timeout=15)
+        return (resp.json() or {}).get("access_token")
+    except Exception as e:
+        _logger.warning("ODK Hook: service token mint failed: %s", e)
+        return None
+
+
+async def _odk_post_ingest(worker_mod, ingest_id):
+    """Post-commit: ensure the intake-submission AWE task exists and raise the Farmer CR.
+
+    Runs AFTER the ingest transaction commits — the ODK ingest writes and
+    finalizes the submission in one transaction, so a fresh session cannot see
+    the crop-sown rows until then (the staff path does not hit this because the
+    submission is already persisted before finalize)."""
+    from openg2p_registry_core.models import G2PIntakeFormSubmission
+    from openg2p_registry_core.services.g2p_awe_integration_service import G2PAweIntegrationService
+    from openg2p_registry_cropsown_extension.register_domain.services.farmer_register_crossref import (
+        raise_farmer_change_request,
+    )
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    session_maker = async_sessionmaker(bind=worker_mod._async_engine, expire_on_commit=False)
+    async with session_maker() as session:
+        classified = await session.get(worker_mod.IncomingClassifiedData, ingest_id)
+        submission_id = getattr(classified, "intake_form_submission_id", None) if classified else None
+    if not submission_id:
+        return
+    token = _odk_mint_service_token()
+    if not token:
+        return
+    requester = (os.environ.get("CROPSOWN_ODK_REQUESTER_SUB") or "odk-ingest").strip()
+    try:
+        async with session_maker() as session:
+            submission = await session.get(G2PIntakeFormSubmission, submission_id)
+            if submission is not None and not getattr(submission, "awe_request_id", None):
+                await G2PAweIntegrationService.get_component().start_intake_submission_workflow(
+                    session, submission, bearer_token=token, requester=submission.created_by)
+                await session.commit()
+                _logger.info("ODK Hook: created intake AWE task for submission %s", submission_id)
+    except Exception as e:
+        _logger.exception("ODK Hook: intake AWE creation failed: %s", e)
+    try:
+        await raise_farmer_change_request(submission_id, token, requester)
+    except Exception as e:
+        _logger.exception("ODK Hook: Farmer-CR raise failed: %s", e)
+
+
+def _patch_odk_post_ingest():
+    """Wrap celery ``_process_ingestion_async`` so an ODK ingest gets the same
+    intake AWE task + Farmer CR as the staff finalize, once it has committed."""
+    try:
+        if not _two_cr_enabled():
+            return
+        worker_mod = importlib.import_module("openg2p_registry_celery_worker.tasks.ingest_data_worker")
+        if getattr(worker_mod, "_cropsown_odk_post_installed", False):
+            return
+        orig_process = worker_mod._process_ingestion_async
+
+        async def process_with_two_cr(ingest_id):
+            await orig_process(ingest_id)
+            try:
+                await _odk_post_ingest(worker_mod, ingest_id)
+            except Exception as e:
+                _logger.exception("ODK Hook: post-ingest wrapper error: %s", e)
+
+        worker_mod._process_ingestion_async = process_with_two_cr
+        worker_mod._cropsown_odk_post_installed = True
+        _logger.info("ODK Hook: installed post-ingest AWE + Farmer-CR wrapper")
+    except Exception as e:
+        _logger.debug("Could not patch ODK post-ingest: %s", e)
+
+
 def install_hooks():
     """Run hook initialization."""
     _alias_extension_modules()
@@ -1257,6 +1405,8 @@ def install_hooks():
     _patch_cultivation_service()
     _patch_sowing_service()
     _patch_harvest_service()
+    _install_two_cr_hooks()
+    _patch_odk_post_ingest()
 
 
 install_hooks()

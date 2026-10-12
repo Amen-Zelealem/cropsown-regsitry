@@ -7,7 +7,8 @@ from .g2p_cropsown_enricher_services import (
     G2PSpdciCropSownDeleteEnricherService,
     G2PUndpCropSownCreateEnricherService,
     G2PUndpCropSownUpdateEnricherService,
-    G2PUndpCropSownDeleteEnricherService
+    G2PUndpCropSownDeleteEnricherService,
+    G2PPassThroughEnricherService
 )
 from .g2p_sowing_enricher_services import (
     G2PDciSowingCreateEnricherService,
