@@ -217,6 +217,21 @@ class G2PDciCropSownDeleteEnricherService(G2PPayloadEnricherInterface):
         _logger.info("Processing G2PDciCropSownDeleteEnricherService")
         return data
 
+
+class G2PPassThroughEnricherService(G2PPayloadEnricherInterface):
+    """Identity enricher: returns the raw payload unchanged.
+
+    Used by connectors (e.g. ODK) whose payload already arrives in the
+    template's expected ``expanded`` shape, so no per-field enrichment is
+    needed before the Jinja transform runs. Farmer identity enrichment for
+    those flows is done later, at finalize, by the register domain service /
+    two-CR hooks — not here."""
+
+    def enrich(self, data: Dict, session: Session) -> Dict:
+        _logger.info("Processing G2PPassThroughEnricherService (identity pass-through)")
+        return data
+
+
 # SPDCI Payload Enrichers
 class G2PSpdciCropSownCreateEnricherService(G2PPayloadEnricherInterface):
     def enrich(self, data: Dict, session: Session) -> Dict:
