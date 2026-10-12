@@ -230,12 +230,15 @@ class G2PRegisterDomainServiceCropSown(G2PRegisterDomainService):
 
         if requires_existing_record:
             from sqlalchemy import text
+            # Normalise BOTH sides to digits-only so a legacy space-grouped saved
+            # Fayda ("1234 5678 9000 3456") matches a digits-only incoming id and
+            # vice versa — the stored column may predate the normalisation.
             query = (
                 "SELECT internal_record_id::text, crop_year, production_season "
                 "FROM g2p_register_crop_sowns "
-                "WHERE fayda_fan_id = :fayda AND record_status = 'ACTIVE'"
+                "WHERE regexp_replace(fayda_fan_id, '\\s+', '', 'g') = :fayda AND record_status = 'ACTIVE'"
             )
-            params = {"fayda": str(fayda_fan_id).strip()}
+            params = {"fayda": re.sub(r"\s+", "", str(fayda_fan_id))}
             if crop_year:
                 query += " AND crop_year = :c_year"
                 params["c_year"] = str(crop_year).strip()

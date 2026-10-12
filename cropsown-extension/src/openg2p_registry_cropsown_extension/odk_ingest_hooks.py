@@ -368,29 +368,45 @@ async def resolve_geo_label(code: str | None, level_prefix: str = "") -> str | N
 
 
 def _alias_extension_modules():
-    """Ensure openg2p_registry_extensions and all its subpackages alias to cropsown extension."""
+    """Make ``openg2p_registry_extensions`` and the real extension name resolve to
+    the SAME module objects — top-level and every submodule, models included.
+
+    Runs unconditionally (not only when the top-level alias is missing): if the
+    alias exists but a model submodule was imported under only one of the two
+    names, its register tables get defined twice and SQLAlchemy/metadata breaks.
+    By importing each submodule once and pointing both names at that object, and
+    by mirroring any already-loaded submodule, models load exactly once."""
     ext = os.environ.get("REGISTRY_EXTENSION_MODULE", "openg2p_registry_cropsown_extension")
-    if "openg2p_registry_extensions" not in sys.modules:
-        try:
-            sys.modules["openg2p_registry_extensions"] = sys.modules.get(ext) or importlib.import_module(ext)
-            for sub in (
-                "config",
-                "ingestion_pipeline",
-                "ingestion_pipeline.enricher_services",
-                "register_domain",
-                "register_domain.models",
-                "register_domain.schemas",
-                "register_domain.services",
-                "register_domain.controllers",
-                "register_domain.factory",
-            ):
-                try:
-                    sys.modules[f"openg2p_registry_extensions.{sub}"] = importlib.import_module(f"{ext}.{sub}")
-                except Exception:
-                    pass
-            _logger.info("ODK Hook: Aliased openg2p_registry_extensions -> %s", ext)
-        except Exception as e:
-            _logger.debug("ODK Hook: Error aliasing extension modules: %s", e)
+    alias = "openg2p_registry_extensions"
+    try:
+        ext_mod = sys.modules.get(ext) or importlib.import_module(ext)
+        sys.modules[alias] = ext_mod
+        # Import + alias the submodules that must resolve under both names before
+        # any model loads — the model submodules especially (farmer, crop_sown...).
+        for sub in (
+            "config",
+            "ingestion_pipeline",
+            "ingestion_pipeline.enricher_services",
+            "register_domain",
+            "register_domain.models",
+            "register_domain.models.farmer",
+            "register_domain.schemas",
+            "register_domain.services",
+            "register_domain.controllers",
+            "register_domain.factory",
+        ):
+            try:
+                module = sys.modules.get(f"{ext}.{sub}") or importlib.import_module(f"{ext}.{sub}")
+                sys.modules[f"{alias}.{sub}"] = module
+            except Exception:
+                pass
+        # Mirror any other already-loaded ext submodule so nothing resolves twice.
+        for name, module in list(sys.modules.items()):
+            if name.startswith(ext + "."):
+                sys.modules[alias + name[len(ext):]] = module
+        _logger.info("ODK Hook: Aliased %s -> %s (with model submodules)", alias, ext)
+    except Exception as e:
+        _logger.debug("ODK Hook: Error aliasing extension modules: %s", e)
 
 
 def _patch_request_response_helper():

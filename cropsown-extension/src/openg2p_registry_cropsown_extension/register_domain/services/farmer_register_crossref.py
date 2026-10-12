@@ -117,6 +117,22 @@ async def _farmer_exists_active(farmer_id: str, cfg: dict) -> bool:
         return found.first() is not None
 
 
+async def _pending_cr_exists(farmer_id: str) -> bool:
+    """True when a PENDING Farmer change-request is already open for this farmer
+    (its subject shell carries the Farmer ID) — so a second submission reuses it
+    instead of raising a duplicate approval."""
+    async with _sessionmaker()() as session:
+        found = await session.execute(
+            text(
+                "SELECT 1 FROM g2p_register_change_requests cr "
+                "JOIN g2p_register_farmers f ON f.internal_record_id = cr.internal_record_id "
+                "WHERE f.functional_record_id = :fid AND cr.approval_status = 'PENDING' LIMIT 1"
+            ),
+            {"fid": farmer_id},
+        )
+        return found.first() is not None
+
+
 async def _draft_shell_for(farmer_id: str, farmer_name: str, fayda: str | None) -> str:
     """internal_record_id of a hidden (INACTIVE) DRAFT shell for this farmer, so
     the REGISTER-section CR is viewable/approvable before the row is visible.
@@ -213,34 +229,50 @@ async def raise_farmer_change_request(submission_id: str, bearer_token: str | No
             fields = to_farmer_fields(personal)
             farmer_name = compose_farmer_name(fields.get("first_name"), fields.get("middle_name"), fields.get("last_name"))
 
-            internal_record_id = await _draft_shell_for(farmer_id, farmer_name, fields.get("fayda_fan_id"))
+            # Serialise per Farmer ID: an advisory lock held across the
+            # exists/pending checks + shell + change-request creation, so two
+            # submissions arriving together cannot both raise a Farmer CR for the
+            # same id. The lock is released when this transaction ends.
+            async with _sessionmaker()() as lock_session:
+                async with lock_session.begin():
+                    await lock_session.execute(
+                        text("SELECT pg_advisory_xact_lock(hashtext(:fid))"), {"fid": farmer_id}
+                    )
+                    if await _farmer_exists_active(farmer_id, cfg):
+                        _logger.info("two-CR: farmer %s became ACTIVE — skipping duplicate CR", farmer_id)
+                        continue
+                    if await _pending_cr_exists(farmer_id):
+                        _logger.info("two-CR: a PENDING Farmer CR already exists for %s — reusing it, not raising another", farmer_id)
+                        continue
 
-            change = ChangePayload(internal_record_id=internal_record_id, edit_action="ADD")
-            payload_fields = _cr_fields(farmer_id, fields, farmer_name)
-            try:
-                change.__pydantic_extra__ = dict(getattr(change, "__pydantic_extra__", None) or {})
-                for key, value in payload_fields.items():
-                    change.__pydantic_extra__[key] = value
-            except Exception:
-                for key, value in payload_fields.items():
-                    setattr(change, key, value)
+                    internal_record_id = await _draft_shell_for(farmer_id, farmer_name, fields.get("fayda_fan_id"))
 
-            cr_payload = ChangeRequestRequestPayload(
-                register_id=cfg["register_id"],
-                tab_id=cfg["tab_id"],
-                section_id=cfg["section_id"],
-                section_register_id=cfg["register_id"],
-                internal_record_id=internal_record_id,
-                change_payload=[change],
-            )
-            cr = await svc.create_change_request(
-                change_request_request_payload=cr_payload,
-                source_partner_id=cfg["source_partner_id"],
-                created_by=cfg["created_by"],
-                change_request_source="cropsown-two-cr",
-                bearer_token=bearer_token,
-                requester_sub=requester_sub,
-            )
+                    change = ChangePayload(internal_record_id=internal_record_id, edit_action="ADD")
+                    payload_fields = _cr_fields(farmer_id, fields, farmer_name)
+                    try:
+                        change.__pydantic_extra__ = dict(getattr(change, "__pydantic_extra__", None) or {})
+                        for key, value in payload_fields.items():
+                            change.__pydantic_extra__[key] = value
+                    except Exception:
+                        for key, value in payload_fields.items():
+                            setattr(change, key, value)
+
+                    cr_payload = ChangeRequestRequestPayload(
+                        register_id=cfg["register_id"],
+                        tab_id=cfg["tab_id"],
+                        section_id=cfg["section_id"],
+                        section_register_id=cfg["register_id"],
+                        internal_record_id=internal_record_id,
+                        change_payload=[change],
+                    )
+                    cr = await svc.create_change_request(
+                        change_request_request_payload=cr_payload,
+                        source_partner_id=cfg["source_partner_id"],
+                        created_by=cfg["created_by"],
+                        change_request_source="cropsown-two-cr",
+                        bearer_token=bearer_token,
+                        requester_sub=requester_sub,
+                    )
             _logger.info(
                 "two-CR: raised Farmer change_request_id=%s for farmer=%s (%s) — approver task created",
                 getattr(cr, "change_request_id", None), farmer_name, farmer_id,
