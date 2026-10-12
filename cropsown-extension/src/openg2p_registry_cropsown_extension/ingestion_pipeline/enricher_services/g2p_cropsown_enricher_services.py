@@ -12,13 +12,11 @@ from sqlalchemy.orm import Session
 _logger = logging.getLogger('g2p-payload-enricher-service')
 
 # --- Farmer Registry DCI federated-fetch config (env-driven) ---------------
-# Base URL of the Farmer Registry partner-api (DCI endpoint lives at
-# {base}/dci/registry/sync/search). In a deployment both registries are
-# reachable over the cluster network; locally set it on the celery-worker.
-FARMER_REGISTRY_DCI_URL = os.environ.get(
-    "CROPSOWN_FARMER_DCI_URL",
-    "http://farmer-registry-partner-api:8000/dci/registry/sync/search",
-)
+# Full URL of the Farmer Registry partner-api DCI sync-search endpoint
+# (e.g. http://<farmer-registry-partner-api-host>:8000/dci/registry/sync/search).
+# No baked-in default — the deployment MUST set CROPSOWN_FARMER_DCI_URL; when it
+# is unset, enrichment is skipped (fails open, see enrich()).
+FARMER_REGISTRY_DCI_URL = os.environ.get("CROPSOWN_FARMER_DCI_URL", "").strip()
 # Our onboarded Partner Management identity (sender_id + signing kid).
 FARMER_DCI_SENDER_ID = os.environ.get("CROPSOWN_DCI_SENDER_ID", "cropsown")
 FARMER_DCI_TIMEOUT = float(os.environ.get("CROPSOWN_DCI_TIMEOUT", "15"))
@@ -181,6 +179,10 @@ class G2PDciCropSownCreateEnricherService(G2PPayloadEnricherInterface):
         API) and merge it into the crop sown payload before transformation.
         """
         _logger.info("Processing G2PDciCropSownCreateEnricherService")
+        if not FARMER_REGISTRY_DCI_URL:
+            _logger.info("CROPSOWN_FARMER_DCI_URL not set — skipping Farmer Registry enrichment")
+            return data
+
         farmer_id = data.get("fayda_fan_id") or data.get("farmer_id")
         if not farmer_id:
             _logger.info("No farmer_id/fayda_fan_id in payload — nothing to enrich")
