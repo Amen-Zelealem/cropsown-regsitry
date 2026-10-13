@@ -24,6 +24,7 @@ class G2PSchemaCultivationCluster:
     cluster_area_timad: Optional[float] = None
     latitude: Optional[str] = None
     longitude: Optional[str] = None
+    altitude: Optional[str] = None
     cluster_plan: Optional[float] = None
     cluster_collected_land: Optional[float] = None
 

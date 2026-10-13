@@ -4,7 +4,7 @@ import logging
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Date as SQLDate, inspect, or_, select
+from sqlalchemy import Date as SQLDate, func, inspect, or_, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from openg2p_registry_core.models import (
@@ -43,8 +43,8 @@ try:
 except ImportError:
     G2PCompletionScoreService = None
 
-_DOMAIN_MODELS_MODULE = "openg2p_registry_extensions.register_domain.models"
-_DOMAIN_FACTORY_MODULE = "openg2p_registry_extensions.register_domain.factory"
+_DOMAIN_MODELS_MODULE = "openg2p_registry_cropsown_extension.register_domain.models"
+_DOMAIN_FACTORY_MODULE = "openg2p_registry_cropsown_extension.register_domain.factory"
 _DOMAIN_FACTORY_CLASS = "G2PRegisterDomainFactory"
 
 _config = Settings.get_config()
@@ -326,6 +326,8 @@ async def _insert_register_row(
         if match is not None:
             existing = match
             record_data["internal_record_id"] = existing.internal_record_id
+        elif str(getattr(submission, "form_id", "")) in ("4a7c2c98-0ffb-41d8-8fea-f22349823675", "52150a37-153d-496d-9cd9-2a3815d6e13b"):
+            raise ValueError("Sowing and Harvesting forms are not allowed to create a new Crop Sown record. Existing master record was not found.")
 
     if existing:
         _update_existing_register_row(existing, record_data, register_class)
@@ -361,9 +363,10 @@ async def _resolve_existing_master(record_data: dict, register_class, session):
 
     query_conditions = []
     if fayda_id and hasattr(register_class, "fayda_fan_id"):
-        query_conditions.append(register_class.fayda_fan_id == fayda_id)
+        query_conditions.append(func.trim(register_class.fayda_fan_id) == fayda_id)
+        query_conditions.append(func.replace(register_class.fayda_fan_id, " ", "") == fayda_id.replace(" ", ""))
     elif farmer_id and hasattr(register_class, "farmer_id"):
-        query_conditions.append(register_class.farmer_id == farmer_id)
+        query_conditions.append(func.trim(register_class.farmer_id) == farmer_id)
 
     if not query_conditions:
         return None

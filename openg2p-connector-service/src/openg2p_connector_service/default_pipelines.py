@@ -48,7 +48,7 @@ async def seed_default_pipelines(conn: AsyncConnection) -> None:
         or os.environ.get("ODK_CENTRAL_BASE_URL")
         or os.environ.get("ODK_BASE_URL")
         or getattr(settings, "odk_central_base_url", "")
-        or "https://odk.13.207.43.8.nip.io"
+        or "https://odk-central-development.oanstaging.com"
     ).strip().rstrip("/")
 
     odk_project_id = int(
@@ -62,7 +62,7 @@ async def seed_default_pipelines(conn: AsyncConnection) -> None:
         or os.environ.get("ODK_CENTRAL_EMAIL")
         or os.environ.get("ODK_EMAIL")
         or getattr(settings, "odk_central_email", "")
-        or "vilbertraj21@gmail.com"
+        or "rithikharavi@gmail.com"
     ).strip()
 
     odk_password = (
@@ -70,7 +70,7 @@ async def seed_default_pipelines(conn: AsyncConnection) -> None:
         or os.environ.get("ODK_CENTRAL_PASSWORD")
         or os.environ.get("ODK_PASSWORD")
         or getattr(settings, "odk_central_password", "")
-        or "odksandbox"
+        or "odkuserrithikha"
     ).strip()
 
     partner_base = (

@@ -42,8 +42,63 @@ _logger = logging.getLogger(_config.logging_default_logger_name)
 
 class Initializer(BaseInitializer):
     def initialize(self, **kwargs):
+        try:
+            import os
+            from openg2p_fastapi_common.config import Settings as CommonSettings
+            common_conf = CommonSettings.get_config(strict=False)
+            if getattr(common_conf, "db_hostname", None) in (None, "localhost", "127.0.0.1"):
+                common_conf.db_hostname = os.environ.get("COMMON_DB_HOSTNAME", os.environ.get("REGISTRY_STAFF_PORTAL_API_DB_HOSTNAME", "postgres"))
+                common_conf.db_port = int(os.environ.get("COMMON_DB_PORT", os.environ.get("REGISTRY_STAFF_PORTAL_API_DB_PORT", 5432)))
+                common_conf.db_dbname = os.environ.get("COMMON_DB_DBNAME", os.environ.get("REGISTRY_STAFF_PORTAL_API_DB_DBNAME", "cropsown"))
+                common_conf.db_username = os.environ.get("COMMON_DB_USERNAME", os.environ.get("REGISTRY_STAFF_PORTAL_API_DB_USERNAME", "postgres"))
+                common_conf.db_password = os.environ.get("COMMON_DB_PASSWORD", os.environ.get("REGISTRY_STAFF_PORTAL_API_DB_PASSWORD", "postgres"))
+                common_conf.db_driver = "postgresql+asyncpg"
+                common_conf.db_datasource = f"{common_conf.db_driver}://{common_conf.db_username}:{common_conf.db_password}@{common_conf.db_hostname}:{common_conf.db_port}/{common_conf.db_dbname}"
+        except Exception as exc:
+            _logger.warning("Could not set common db config: %s", exc)
+
         super().initialize()
         CoreInitializer().initialize()
+
+        try:
+            import os
+            from openg2p_registry_core.config import Settings as CoreSettings
+            core_conf = CoreSettings.get_config(strict=False)
+            if not getattr(core_conf, "awe_callback_hmac_secret", None):
+                core_conf.awe_callback_hmac_secret = os.environ.get(
+                    "REGISTRY_CORE_AWE_CALLBACK_HMAC_SECRET",
+                    os.environ.get("REGISTRY_STAFF_PORTAL_API_AWE_CALLBACK_HMAC_SECRET", "dev-registry-awe-callback-secret")
+                )
+            if not getattr(core_conf, "awe_callback_secret_id", None):
+                core_conf.awe_callback_secret_id = os.environ.get(
+                    "REGISTRY_CORE_AWE_CALLBACK_SECRET_ID",
+                    os.environ.get("REGISTRY_STAFF_PORTAL_API_AWE_CALLBACK_SECRET_ID", "00000000-0000-4000-8000-000000000001")
+                )
+            if not getattr(core_conf, "awe_default_callback_url", None):
+                core_conf.awe_default_callback_url = os.environ.get(
+                    "REGISTRY_CORE_AWE_DEFAULT_CALLBACK_URL",
+                    os.environ.get("REGISTRY_STAFF_PORTAL_API_AWE_DEFAULT_CALLBACK_URL", "http://staff-api:8000/awe/webhooks/decision")
+                )
+            if not getattr(core_conf, "awe_base_url", None) or core_conf.awe_base_url == "http://localhost:8000":
+                core_conf.awe_base_url = os.environ.get(
+                    "REGISTRY_CORE_AWE_BASE_URL",
+                    os.environ.get("REGISTRY_STAFF_PORTAL_API_AWE_BASE_URL", "http://awe:8000")
+                )
+            if not getattr(core_conf, "awe_enabled", False):
+                core_conf.awe_enabled = True
+        except Exception as exc:
+            _logger.warning("Could not set core AWE config: %s", exc)
+
+        try:
+            import os
+            from iam_core.user_auth.config import Settings as IamSettings
+            iam_conf = IamSettings.get_config(strict=False)
+            if getattr(iam_conf, "auth_redis_url", None) in (None, "redis://localhost:6379/0"):
+                iam_conf.auth_redis_url = os.environ.get("REGISTRY_STAFF_PORTAL_API_AUTH_REDIS_URL", "redis://redis:6379/0")
+            if not getattr(iam_conf, "auth_provider_api_url", None):
+                iam_conf.auth_provider_api_url = os.environ.get("REGISTRY_STAFF_PORTAL_API_AUTH_PROVIDER_API_URL", "http://iam:8000")
+        except Exception as exc:
+            _logger.warning("Could not set iam_core auth_redis_url: %s", exc)
 
         try:
             from . import odk_ingest_hooks  # noqa: F401
@@ -55,21 +110,36 @@ class Initializer(BaseInitializer):
         G2PRegisterDomainServiceSowing()
 
         try:
-            from .register_domain.controllers import G2PApproverResolverController
+            from .register_domain.services.cropsown_intake_validation_service import setup_intake_hooks
+            setup_intake_hooks()
+        except Exception as exc:
+            _logger.warning("Could not initialize cropsown intake hooks: %s", exc)
+
+        try:
+            from .register_domain.controllers import (
+                G2PApproverResolverController,
+                G2PAweTasksStatsController,
+            )
             G2PApproverResolverController().post_init()
-        except ImportError:
-            pass
+            G2PAweTasksStatsController().post_init()
+        except Exception as exc:
+            _logger.warning("Could not initialize cropsown controllers: %s", exc)
 
         try:
             import openg2p_registry_staff_api.main as staff_main
             if hasattr(staff_main, "REGISTRY_STAFF_CSRF_EXCLUDED_PATHS"):
-                if "/cropsown/approver-resolver" not in staff_main.REGISTRY_STAFF_CSRF_EXCLUDED_PATHS:
-                    staff_main.REGISTRY_STAFF_CSRF_EXCLUDED_PATHS = (
-                        *staff_main.REGISTRY_STAFF_CSRF_EXCLUDED_PATHS,
-                        "/cropsown/approver-resolver",
-                    )
+                excluded = set(staff_main.REGISTRY_STAFF_CSRF_EXCLUDED_PATHS)
+                excluded.update([
+                    "/cropsown/approver-resolver",
+                    "/v1/awe/tasks/stats",
+                    "/awe/tasks/stats",
+                    "/v1/awe/requests",
+                    "/awe/requests",
+                ])
+                staff_main.REGISTRY_STAFF_CSRF_EXCLUDED_PATHS = tuple(excluded)
         except Exception as exc:
             _logger.debug("Could not add CSRF exemption to staff-api: %s", exc)
+
 
     def migrate_database(self, args):
 

@@ -16,8 +16,23 @@
 # ── Globals (propagate to the openg2p-registry subchart) ──────────────────────
 global:
   registryVariant: 'cropsown-registry'
-  # Ingress host for this registry. Overrides the subchart's generic default.
-  registryHostname: '{{ .Release.Name }}.{{ .Release.Namespace }}.openg2p.org'
+  # Public hosts, on the environment's base domain <namespace>.openg2p.test
+  # (crop.openg2p.test). The subchart defaults them all to <namespace>.openg2p.org,
+  # a placeholder that resolves nowhere here, which broke Keycloak, MinIO and IAM.
+  registryHostname: '{{ .Release.Name }}.{{ .Release.Namespace }}.openg2p.test'
+  keycloakBaseUrl: 'https://keycloak.{{ .Release.Namespace }}.openg2p.test'
+  minioHost: 'minio-api.{{ .Release.Namespace }}.openg2p.test'
+  idGeneratorHostname: 'idgenerator-{{ .Release.Name }}.{{ .Release.Namespace }}.openg2p.test'
+  aweHostname: 'awe.{{ .Release.Namespace }}.openg2p.test'
+  # AWE and the staff API talk to each other inside the cluster. The subchart
+  # defaults both to the public https hosts, which use the self-signed Local CA:
+  # AWE's webhook to the staff API failed with CERTIFICATE_VERIFY_FAILED, so
+  # approved intake forms never reached the registry (44 failed deliveries,
+  # 2026-10-07..09). aweDefaultCallbackUrl also becomes caller_service of this
+  # release's callback_secret row (awe_meta_data/40_callback_secret.sql.tpl
+  # upserts it on every db-seed). AWE runs in <aweReleaseName>, commons-services.
+  aweBaseUrl: 'http://{{ .Values.global.aweReleaseName }}-awe.{{ .Release.Namespace }}.svc.cluster.local'
+  aweDefaultCallbackUrl: 'http://{{ .Release.Name }}-staff-portal-api.{{ .Release.Namespace }}.svc.cluster.local/awe/webhooks/decision'
 
 # ── openg2p-registry subchart overrides ───────────────────────────────────────
 registry:
@@ -28,6 +43,16 @@ registry:
     image:
       repository: openg2p/openg2p-cropsown-registry-staff-api
       tag: 0.0.0-develop
+    envVars:
+      APPROVER_RESOLVER_SECRET: "cropsown-approver-resolver-secret"
+      KEYCLOAK_BASE_URL: '{{ tpl .Values.global.keycloakBaseUrl $ }}'
+      KEYCLOAK_REALM: '{{ tpl (default "staff" .Values.global.keycloakRealm) $ }}'
+      AUTH_CLIENT_ID: '{{ tpl (default (printf "%s-staff-portal" .Release.Name) .Values.global.authClientId) $ }}'
+    envVarsFrom:
+      AUTH_CLIENT_SECRET:
+        secretKeyRef:
+          name: '{{ tpl (default (printf "%s-staff-portal" .Release.Name) .Values.global.authClientSecret) $ }}'
+          key: '{{ tpl (default "client_secret" .Values.global.authClientSecretKey) $ }}'
   partnerApi:
     image:
       repository: openg2p/openg2p-cropsown-registry-partner-api
@@ -36,20 +61,38 @@ registry:
     image:
       repository: openg2p/openg2p-cropsown-registry-celery
       tag: 0.0.0-develop
+    envVars:
+      REGISTRY_CELERY_WORKERS_MASTER_DATA_DB_HOSTNAME: "commons-postgresql"
+      # The subchart sets no --concurrency, so prefork starts one process per
+      # CPU (48 on the dev node), each loading the whole app: the worker sat at
+      # 3.5Gi of its 4Gi limit. 8 is a throughput choice with memory headroom.
+      CELERY_OPTS: "worker -Q registry_worker_queue --concurrency=8 --loglevel=info"
   celeryBeat:
     image:
       repository: openg2p/openg2p-cropsown-registry-celery
       tag: 0.0.0-develop
+    envVars:
+      # The beat producer only schedules and enqueues; with 48 processes it went
+      # over its 3Gi limit ~17s after start (OOMKilled, CrashLoopBackOff).
+      CELERY_OPTS: "worker --beat --concurrency=2 --loglevel=info --schedule=/tmp/celery-beat-schedule.db"
   dbSeed:
     image:
       repository: openg2p/openg2p-cropsown-registry-db-seed
       tag: 0.0.0-develop
-    # Geo/images/templates loaders are generic and safe to enable. Sample data is
+    envVars:
+      APPROVER_RESOLVER_SECRET: "cropsown-approver-resolver-secret"
+    # The images/templates loaders are generic and safe to enable. Sample data is
     # NOT: the platform's load_sample_data.py is hardcoded to the reference
     # (farmer) registry's tables, so it cannot load crop sown records. The crop
     # sown sample set ships as SQL at /seed/sample-data in the db-seed image and
     # is applied explicitly (see local/docker-compose.yml), never by this flag.
-    loadGeoData: true
+    #
+    # loadGeoData is off because this registry is Ethiopia-only: the db-seed
+    # image now applies the real region/zone/woreda/kebele hierarchy itself
+    # (docker/db-seed/entrypoint-cropsown.sh). Leaving the platform's generic
+    # loader on as well would put a second, unrelated hierarchy in the same
+    # master data tables, which the geo dropdowns then mix together.
+    loadGeoData: false
     loadSampleData: false
     loadImages: true
     loadTemplates: true
@@ -79,9 +122,13 @@ registry:
           infestation:
             idLength: 5
 
-  # staffUi and beneApi are consumed as-is from the openg2p-registry base images
-  # (subchart defaults already point at openg2p/openg2p-registry-*), so they are
-  # intentionally not overridden.
+  # staffUi's image is set by the pipeline (docker/staff-ui). Its browser-facing
+  # IAM URL and cookie domain are on the same .openg2p.test base domain as the
+  # globals above. beneApi is consumed as-is from the openg2p-registry base image.
+  staffUi:
+    iamPublicUrl: 'https://staff-iam.{{ .Release.Namespace }}.openg2p.test'
+    envVars:
+      COOKIE_DOMAIN: '.{{ .Release.Namespace }}.openg2p.test'
 
   # ── Crop sown e2e sanity suite (image built here; Set 2 field tests) ────────
   # The subchart ships the reference (Individual) sanity values; override them
@@ -106,3 +153,74 @@ registry:
     farmerRegisterId: 6b06a95a-9a6c-5a33-a33d-c1625716c59c
     crTabId: "cropsown_cropsown_tab"
     crSectionId: "cropsown_cropsown_record_section_01"
+
+# ── Reporting layer and dashboard service (this chart's own templates) ────────
+# The cs_rpt_* views the dashboard service reads (templates/reporting-views.yaml,
+# templates/reporting-views-refresh.yaml) and the service itself
+# (templates/dashboard-api.yaml). Both are off by default.
+reporting:
+  # Registry database. The subchart's globals are not visible to this chart's
+  # templates, so the coordinates are repeated here, following the subchart's
+  # convention (database and user from the release name, password in the
+  # Secret named after the release). host empty = global.postgresqlHost,
+  # else commons-postgresql.
+  db:
+    host: ""
+    port: 5432
+    name: '{{ .Release.Name | replace "-" "_" }}'
+    user: '{{ printf "%s_user" .Release.Name | replace "-" "_" }}'
+    secret: '{{ .Release.Name }}'
+    passwordKey: '{{ .Release.Name }}-db-user'
+  # Empty: the jobs run in the registry's db-seed image (registry.dbSeed.image),
+  # which ships reporting_views.sql and whose tag CI rewrites.
+  image:
+    repository: ""
+    tag: ""
+  views:
+    enabled: false
+    # How long the create job waits for staff-api's migrations on a fresh install.
+    waitForSchemaSeconds: 600
+    # How often the materialized views are rebuilt. Empty disables the CronJob.
+    refreshSchedule: "*/30 * * * *"
+    refreshLog:
+      enabled: true
+      retentionDays: 90
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+
+dashboardApi:
+  enabled: false
+  image:
+    repository: ""
+    tag: ""
+  replicas: 1
+  # gunicorn workers. Each holds its own database pool (below), so a replica
+  # uses up to workers x dbPool.maxSize connections.
+  workers: 2
+  # Connections per worker: minSize kept open, maxSize under load. The
+  # dashboards cache responses, so a few are plenty.
+  dbPool:
+    minSize: 1
+    maxSize: 5
+  # CORS origins. Browsers are not expected to call the service directly.
+  allowedOrigins: []
+  # Extra environment variables, as NAME: value. Values may use templates.
+  env: {}
+  # Optional hostname route for developers and tools, on a PRIVATE Istio
+  # gateway only (the service has no authentication), e.g.
+  #   host: dashboard-api.crop.openg2p.test
+  #   gateway: internal
+  virtualService:
+    enabled: false
+    host: ""
+    gateway: ""
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi

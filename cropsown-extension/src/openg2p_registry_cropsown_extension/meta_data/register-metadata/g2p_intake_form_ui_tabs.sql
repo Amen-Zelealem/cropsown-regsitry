@@ -1,7 +1,4 @@
-INSERT INTO "public"."g2p_intake_form_ui_tabs" ("tab_id","form_id","tab_label","tab_order") VALUES 
-('f3f3a330-98f4-5941-9cec-303e77462b14','852cf76a-a691-5572-9dd2-9bbca6fa5c78','cropsown_intake_tab',10);
-
-INSERT INTO "public"."g2p_intake_form_ui_tabs" ("tab_id","form_id","tab_label","tab_order") VALUES 
+INSERT INTO "public"."g2p_intake_form_ui_tabs" ("tab_id","form_id","tab_label","tab_order") VALUES
 ('8bd9fe3b-bb8c-4d5d-9f57-f7b5542050b8','5bf0068c-ce19-46f8-874c-7147997f793b','cropsown_planning_intake_tab',10);
 
 INSERT INTO "public"."g2p_intake_form_ui_tabs" ("tab_id","form_id","tab_label","tab_order") VALUES 

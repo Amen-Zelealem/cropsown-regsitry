@@ -54,11 +54,27 @@ PGPASSWORD="${MD_PGPASSWORD:-}" psql \
   --quiet \
   --file "$GEO_SEED_FILE"
 
+if [ -f "/seed/meta_data/lookup-data/g2p_attributes.sql" ]; then
+  echo "[db-seed] Applying master data attributes to ${MD_PGDATABASE}@${MD_PGHOST}:${MD_PGPORT:-5432} ..."
+  PGPASSWORD="${MD_PGPASSWORD:-}" psql \
+    --host "$MD_PGHOST" --port "${MD_PGPORT:-5432}" \
+    --username "${MD_PGUSER:-postgres}" --dbname "$MD_PGDATABASE" \
+    --file "/seed/meta_data/lookup-data/g2p_attributes.sql" || true
+fi
+
+if [ -f "/seed/meta_data/lookup-data/g2p_attribute_values.sql" ]; then
+  echo "[db-seed] Applying master data attribute values to ${MD_PGDATABASE}@${MD_PGHOST}:${MD_PGPORT:-5432} ..."
+  PGPASSWORD="${MD_PGPASSWORD:-}" psql \
+    --host "$MD_PGHOST" --port "${MD_PGPORT:-5432}" \
+    --username "${MD_PGUSER:-postgres}" --dbname "$MD_PGDATABASE" \
+    --file "/seed/meta_data/lookup-data/g2p_attribute_values.sql" || true
+fi
+
 PGPASSWORD="${MD_PGPASSWORD:-}" psql \
   --host "$MD_PGHOST" --port "${MD_PGPORT:-5432}" \
   --username "${MD_PGUSER:-postgres}" --dbname "$MD_PGDATABASE" \
   --tuples-only --no-align \
-  --command "SELECT '[geo-seed] ' || (SELECT count(*) FROM g2p_geo_levels) || ' geo levels, ' || (SELECT count(*) FROM g2p_geo_level_values) || ' values'"
+  --command "SELECT '[geo-seed] ' || (SELECT count(*) FROM g2p_geo_levels) || ' geo levels, ' || (SELECT count(*) FROM g2p_geo_level_values) || ' values, ' || (SELECT count(*) FROM g2p_attributes) || ' attributes, ' || (SELECT count(*) FROM g2p_attribute_values) || ' attribute values'"
 
 rewrite_approver_rules() {
   if [ "${AWE_DB_SEED_ENABLED:-false}" != "true" ]; then
