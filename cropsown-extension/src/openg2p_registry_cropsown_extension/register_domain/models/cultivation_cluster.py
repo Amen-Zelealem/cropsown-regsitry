@@ -76,11 +76,19 @@ class G2PCultivationCluster:
     supervisor_name: Mapped[str] = mapped_column(String, nullable=True)
     supervisor_mobile_number: Mapped[str] = mapped_column(String, nullable=True)
 
+    latitude: Mapped[str] = mapped_column(String, nullable=True)
+    longitude: Mapped[str] = mapped_column(String, nullable=True)
+    altitude: Mapped[str] = mapped_column(String, nullable=True)
+
 
 # All Register classes should have the prefix G2PRegister
-class G2PRegisterCultivationCluster(G2PRegister, G2PGeo, G2PCultivationCluster):
+class G2PRegisterCultivationCluster(G2PRegister, G2PCultivationCluster, G2PGeo):
     __tablename__ = "g2p_register_cultivation_clusters"
     __table_args__ = {"extend_existing": True}
+
+    latitude: Mapped[str] = mapped_column(String, nullable=True)
+    longitude: Mapped[str] = mapped_column(String, nullable=True)
+    altitude: Mapped[str] = mapped_column(String, nullable=True)
 
     def get_search_text_fields(self) -> str:
         """Return cluster information fields used to build search_text."""
@@ -92,15 +100,23 @@ class G2PRegisterCultivationCluster(G2PRegister, G2PGeo, G2PCultivationCluster):
 
 
 # All Register History classes should have the prefix G2PRegisterHistory
-class G2PRegisterHistoryCultivationCluster(G2PRegisterHistory, G2PGeoHistory, G2PCultivationCluster):
+class G2PRegisterHistoryCultivationCluster(G2PRegisterHistory, G2PCultivationCluster, G2PGeoHistory):
     __tablename__ = "g2p_register_history_cultivation_clusters"
     __table_args__ = {"extend_existing": True}
 
+    latitude: Mapped[str] = mapped_column(String, nullable=True)
+    longitude: Mapped[str] = mapped_column(String, nullable=True)
+    altitude: Mapped[str] = mapped_column(String, nullable=True)
+
 
 # All Intake Form classes should have the prefix G2PIntakeForm
-class G2PIntakeFormCultivationCluster(G2PIntakeForm, G2PRegister, G2PGeo, G2PCultivationCluster):
+class G2PIntakeFormCultivationCluster(G2PIntakeForm, G2PRegister, G2PCultivationCluster, G2PGeo):
     __tablename__ = "g2p_intake_form_cultivation_clusters"
     __table_args__ = {"extend_existing": True}
+
+    latitude: Mapped[str] = mapped_column(String, nullable=True)
+    longitude: Mapped[str] = mapped_column(String, nullable=True)
+    altitude: Mapped[str] = mapped_column(String, nullable=True)
 
     async def get_link_internal_record_id(self, session):
         from .crop_sown import G2PIntakeFormCropSown

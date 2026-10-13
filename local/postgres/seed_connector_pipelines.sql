@@ -47,9 +47,9 @@ INSERT INTO connector_definitions (
     'CSR_DATA_MODEL',
     'CropSown',
     'CropSown',
-    '{"base_url": "https://odk.13.207.43.8.nip.io", "project_id": 15, "form_id": "crop_sown_registry_plan", "resolve_nav_links": true, "strict_incremental": false, "target_url": "http://partner-api:8000/partner/ingest_data", "target_headers": {"partner-id": "crop-partner", "Content-Type": "application/json"}}',
+    '{"base_url": "https://odk-central-development.oanstaging.com", "project_id": 15, "form_id": "crop_sown_registry_plan", "resolve_nav_links": true, "strict_incremental": false, "target_url": "http://partner-api:8000/partner/ingest_data", "target_headers": {"partner-id": "crop-partner", "Content-Type": "application/json"}}',
     'odk_session',
-    '{"email": "vilbertraj21@gmail.com", "password": "odksandbox"}',
+    '{"email": "rithikharavi@gmail.com", "password": "odkuserrithikha"}',
     'hmac_sha256'
 ),
 (
@@ -62,9 +62,9 @@ INSERT INTO connector_definitions (
     'CSR_DATA_MODEL',
     'CropSown',
     'CropSown',
-    '{"base_url": "https://odk.13.207.43.8.nip.io", "project_id": 15, "form_id": "crop_sown_registry_prep", "resolve_nav_links": true, "strict_incremental": false, "target_url": "http://partner-api:8000/partner/ingest_data", "target_headers": {"partner-id": "crop-partner", "Content-Type": "application/json"}}',
+    '{"base_url": "https://odk-central-development.oanstaging.com", "project_id": 15, "form_id": "crop_sown_registry_prep", "resolve_nav_links": true, "strict_incremental": false, "target_url": "http://partner-api:8000/partner/ingest_data", "target_headers": {"partner-id": "crop-partner", "Content-Type": "application/json"}}',
     'odk_session',
-    '{"email": "vilbertraj21@gmail.com", "password": "odksandbox"}',
+    '{"email": "rithikharavi@gmail.com", "password": "odkuserrithikha"}',
     'hmac_sha256'
 ),
 (
@@ -77,9 +77,9 @@ INSERT INTO connector_definitions (
     'CSR_DATA_MODEL',
     'CropSown',
     'CropSown',
-    '{"base_url": "https://odk.13.207.43.8.nip.io", "project_id": 15, "form_id": "crop_sown_registry_sown", "resolve_nav_links": true, "strict_incremental": false, "target_url": "http://partner-api:8000/partner/ingest_data", "target_headers": {"partner-id": "crop-partner", "Content-Type": "application/json"}}',
+    '{"base_url": "https://odk-central-development.oanstaging.com", "project_id": 15, "form_id": "crop_sown_registry_sown", "resolve_nav_links": true, "strict_incremental": false, "target_url": "http://partner-api:8000/partner/ingest_data", "target_headers": {"partner-id": "crop-partner", "Content-Type": "application/json"}}',
     'odk_session',
-    '{"email": "vilbertraj21@gmail.com", "password": "odksandbox"}',
+    '{"email": "rithikharavi@gmail.com", "password": "odkuserrithikha"}',
     'hmac_sha256'
 ),
 (
@@ -92,9 +92,9 @@ INSERT INTO connector_definitions (
     'CSR_DATA_MODEL',
     'CropSown',
     'CropSown',
-    '{"base_url": "https://odk.13.207.43.8.nip.io", "project_id": 15, "form_id": "crop_sown_registry_harvest", "resolve_nav_links": true, "strict_incremental": false, "target_url": "http://partner-api:8000/partner/ingest_data", "target_headers": {"partner-id": "crop-partner", "Content-Type": "application/json"}}',
+    '{"base_url": "https://odk-central-development.oanstaging.com", "project_id": 15, "form_id": "crop_sown_registry_harvest", "resolve_nav_links": true, "strict_incremental": false, "target_url": "http://partner-api:8000/partner/ingest_data", "target_headers": {"partner-id": "crop-partner", "Content-Type": "application/json"}}',
     'odk_session',
-    '{"email": "vilbertraj21@gmail.com", "password": "odksandbox"}',
+    '{"email": "rithikharavi@gmail.com", "password": "odkuserrithikha"}',
     'hmac_sha256'
 )
 ON CONFLICT (name) DO NOTHING;

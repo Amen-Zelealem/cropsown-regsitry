@@ -7,7 +7,7 @@
 # runs as worker or beat, selected at runtime via CELERY_APP.
 #
 # Build context = repo root (so cropsown-extension/ is reachable).
-ARG RP_VERSION=0.0.0-develop.296
+ARG RP_VERSION=1.2.2-rc.544
 FROM openg2p/openg2p-registry-celery:${RP_VERSION}
 
 # Option C: select crop sown's domain model (coexists with the base image's
@@ -15,7 +15,6 @@ FROM openg2p/openg2p-registry-celery:${RP_VERSION}
 ENV REGISTRY_EXTENSION_MODULE=openg2p_registry_cropsown_extension
 
 COPY cropsown-extension/ /app/cropsown-extension/
-COPY core_pkg/ /usr/local/lib/python3.12/site-packages/openg2p_registry_core/
 # Overlay the base image's intake-form ingest worker with the parent-resolving
 # fix (see docker/celery/patches/README.md). docker-compose mounts this for local
 # dev; baking it here makes CI/Helm-built images carry the same fix. Keep in sync

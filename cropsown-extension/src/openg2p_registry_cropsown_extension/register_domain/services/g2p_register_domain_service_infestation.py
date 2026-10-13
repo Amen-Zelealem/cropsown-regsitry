@@ -49,7 +49,14 @@ class G2PRegisterDomainServiceInfestation(G2PRegisterDomainService):
             cluster_status = " ".join(str(item) for item in raw_cs if item).upper()
         else:
             cluster_status = str(raw_cs or "").upper()
-        is_clustered = "CLUSTER" in cluster_status
+        if "INDEPENDENT" in cluster_status or "NON_CLUSTER" in cluster_status or "NON-CLUSTER" in cluster_status:
+            is_clustered = False
+        elif "CLUSTERED" in cluster_status or cluster_status == "CLUSTER" or "CLUSTER_STATUS_CLUSTERED" in cluster_status:
+            is_clustered = True
+        elif "CLUSTER" in cluster_status:
+            is_clustered = True
+        else:
+            is_clustered = bool(record.get("cluster_name") and not record.get("commodity") and not record.get("crop_type_affected"))
 
         commodity = record.get("commodity")
         from .domain_validation_utils import get_attribute_variants
@@ -60,20 +67,31 @@ class G2PRegisterDomainServiceInfestation(G2PRegisterDomainService):
 
         sowing_found = False
 
+        sowing_date = None
+
         # 1. Check in Intake Form (current form submission)
         if submission_id:
-            query = "SELECT commodity FROM g2p_intake_form_sowings WHERE submission_id = :sub_id AND land_id = :land_id"
+            query = "SELECT commodity, sowing_date, cluster_name FROM g2p_intake_form_sowings WHERE submission_id = :sub_id AND land_id = :land_id"
             params = {"sub_id": str(submission_id), "land_id": land_id}
             res = await session.execute(text(query), params)
             s_rows = res.fetchall()
             if s_rows:
-                if is_clustered or not commodity or not commodity_vars:
+                if is_clustered:
+                    cluster_name = str(record.get("cluster_name") or "").strip()
+                    for r in s_rows:
+                        if not cluster_name or str(r[2] or "").strip().upper() == cluster_name.upper():
+                            sowing_found = True
+                            sowing_date = r[1]
+                            break
+                elif not commodity:
                     sowing_found = True
+                    sowing_date = s_rows[0][1]
                 else:
                     for r in s_rows:
                         s_comm = r[0]
-                        if not s_comm or any(v.upper() == str(s_comm).strip().upper() for v in commodity_vars):
+                        if s_comm and any(v.upper() == str(s_comm).strip().upper() for v in commodity_vars):
                             sowing_found = True
+                            sowing_date = r[1]
                             break
 
         # 2. Build master_ids for Register check if not found in intake
@@ -125,20 +143,29 @@ class G2PRegisterDomainServiceInfestation(G2PRegisterDomainService):
                         master_ids.add(str(r[0]))
 
             if master_ids:
-                stmt = select(G2PRegisterSowing.commodity).where(
+                stmt = select(G2PRegisterSowing.commodity, G2PRegisterSowing.sowing_date, G2PRegisterSowing.cluster_name).where(
                     G2PRegisterSowing.link_internal_record_id.in_(list(master_ids)),
                     G2PRegisterSowing.record_status == 'ACTIVE',
                     G2PRegisterSowing.land_id == land_id
                 )
                 res = await session.execute(stmt)
-                reg_sowings = res.scalars().all()
+                reg_sowings = res.all()
                 if reg_sowings:
-                    if is_clustered or not commodity or not commodity_vars:
-                        sowing_found = True
-                    else:
-                        for s_comm in reg_sowings:
-                            if not s_comm or any(v.upper() == str(s_comm).strip().upper() for v in commodity_vars):
+                    if is_clustered:
+                        cluster_name = str(record.get("cluster_name") or "").strip()
+                        for s_comm, s_date, s_cname in reg_sowings:
+                            if not cluster_name or str(s_cname or "").strip().upper() == cluster_name.upper():
                                 sowing_found = True
+                                sowing_date = s_date
+                                break
+                    elif not commodity:
+                        sowing_found = True
+                        sowing_date = reg_sowings[0][1]
+                    else:
+                        for s_comm, s_date, s_cname in reg_sowings:
+                            if s_comm and any(v.upper() == str(s_comm).strip().upper() for v in commodity_vars):
+                                sowing_found = True
+                                sowing_date = s_date
                                 break
 
         if not sowing_found:
@@ -148,8 +175,15 @@ class G2PRegisterDomainServiceInfestation(G2PRegisterDomainService):
                 f"Pest/Disease Infestation incident can only be created for a crop that has a Sowing record."
             )
 
+        obs_date = parse_date(record.get("observation_date"))
+        sow_dt = parse_date(sowing_date)
+        if obs_date and sow_dt and obs_date <= sow_dt:
+            validation_error(
+                f"Infestation Observation Date ({obs_date.strftime('%Y-%m-%d')}) must be after "
+                f"Sowing Date ({sow_dt.strftime('%Y-%m-%d')}) for Land ID '{land_id}'."
+            )
+
     def _validate_observation_date(self, record: dict) -> None:
-        # Future observation dates are allowed; no restriction here.
         return
 
     def _validate_estimated_damage(self, record: dict) -> None:

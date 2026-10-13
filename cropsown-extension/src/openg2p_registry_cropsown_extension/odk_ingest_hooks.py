@@ -463,7 +463,8 @@ def _patch_celery_worker():
                                     res = await session.execute(
                                         text("""
                                             SELECT farmer_name, farmer_id, region, zone, woreda, kebele,
-                                                   address_line_1, address_line_2, latitude, longitude, gps_coordinate
+                                                   address_line_1, address_line_2, latitude, longitude,
+                                                   latitude || ', ' || longitude as gps_coordinate
                                             FROM g2p_intake_form_crop_sowns
                                             WHERE fayda_fan_id = :fayda AND farmer_name IS NOT NULL AND farmer_name != ''
                                             ORDER BY created_at DESC LIMIT 1
@@ -569,8 +570,82 @@ def _patch_celery_worker():
 
             worker_mod._save_sections_async = patched_save_sections_async
             _logger.info("ODK Hook: Patched ingest_data_worker._save_sections_async")
+
+            orig_finalize_submission_async = getattr(worker_mod, "_finalize_submission_async", None)
+            if orig_finalize_submission_async and not hasattr(worker_mod, "_odk_patched_finalize"):
+                worker_mod._odk_patched_finalize = True
+
+                async def patched_finalize_submission_async(submission_id: str, session) -> None:
+                    token = await _get_awe_service_token()
+                    from openg2p_registry_core.services.intake_form_data_service import G2PIntakeFormDataService
+                    await G2PIntakeFormDataService.get_component().finalize_submission_with_session(
+                        submission_id,
+                        session,
+                        bearer_token=token,
+                    )
+
+                worker_mod._finalize_submission_async = patched_finalize_submission_async
+                _logger.info("ODK Hook: Patched ingest_data_worker._finalize_submission_async with AWE service token")
+
+            try:
+                from openg2p_registry_core.config import Settings as CoreSettings
+                from openg2p_registry_core.helpers import AweHelper
+                core_cfg = CoreSettings.get_config(strict=False)
+                core_cfg.awe_enabled = True
+                core_cfg.awe_base_url = "http://awe:8000"
+                core_cfg.awe_default_callback_url = "http://staff-api:8000/awe/webhooks/decision"
+                core_cfg.awe_callback_secret_id = "00000000-0000-4000-8000-000000000001"
+                core_cfg.awe_callback_hmac_secret = "dev-registry-awe-callback-secret"
+                awe_h = AweHelper.get_component()
+                if awe_h:
+                    awe_h._base_url = "http://awe:8000"
+            except Exception as e:
+                _logger.debug("Could not patch core settings AWE config: %s", e)
     except Exception as e:
         _logger.debug("Could not patch ingest_data_worker: %s", e)
+
+
+_cached_awe_token = None
+_cached_awe_token_expiry = 0
+
+
+async def _get_awe_service_token() -> str | None:
+    """Acquire and cache a Keycloak client-credentials token for background AWE calls."""
+    global _cached_awe_token, _cached_awe_token_expiry
+    import time
+    import urllib.request
+    import urllib.parse
+    import json
+
+    now = time.time()
+    if _cached_awe_token and now < _cached_awe_token_expiry - 60:
+        return _cached_awe_token
+    try:
+        keycloak_url = (
+            os.environ.get("KEYCLOAK_BASE_URL")
+            or os.environ.get("KEYCLOAK_URL")
+            or "http://keycloak:8080"
+        ).rstrip("/")
+        realm = os.environ.get("KEYCLOAK_REALM", "staff")
+        client_id = os.environ.get("AUTH_CLIENT_ID", "cropsown-staff-portal")
+        client_secret = os.environ.get("AUTH_CLIENT_SECRET", "cropsown-staff-portal-secret")
+
+        token_url = f"{keycloak_url}/realms/{realm}/protocol/openid-connect/token"
+        data = urllib.parse.urlencode({
+            "grant_type": "client_credentials",
+            "client_id": client_id,
+            "client_secret": client_secret,
+        }).encode("utf-8")
+        req = urllib.request.Request(token_url, data=data)
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            body = json.loads(resp.read().decode("utf-8"))
+            _cached_awe_token = body.get("access_token")
+            expires_in = body.get("expires_in", 300)
+            _cached_awe_token_expiry = now + expires_in
+            return _cached_awe_token
+    except Exception as exc:
+        _logger.warning("Could not obtain AWE service token from Keycloak: %s", exc)
+        return None
 
 
 def _connect_celery_signals():
@@ -592,6 +667,39 @@ def _patch_intake_form_data_service():
         from openg2p_registry_core.services.intake_form_data_service import G2PIntakeFormDataService
         from sqlalchemy import select, text
         from decimal import Decimal
+
+        if not hasattr(G2PIntakeFormDataService, "_odk_patched_finalize_submission_with_session"):
+            G2PIntakeFormDataService._odk_patched_finalize_submission_with_session = True
+            orig_finalize_submission = G2PIntakeFormDataService.finalize_submission_with_session
+
+            async def patched_finalize_submission_with_session(
+                self,
+                submission_id: str,
+                session,
+                finalized_by: str | None = None,
+                bearer_token: str | None = None,
+                requester_sub: str | None = None,
+            ):
+                if not bearer_token:
+                    bearer_token = await _get_awe_service_token()
+                try:
+                    from openg2p_registry_core.helpers import AweHelper
+                    awe_h = AweHelper.get_component()
+                    if awe_h:
+                        awe_h._base_url = "http://awe:8000"
+                except Exception:
+                    pass
+                return await orig_finalize_submission(
+                    self,
+                    submission_id,
+                    session,
+                    finalized_by=finalized_by,
+                    bearer_token=bearer_token,
+                    requester_sub=requester_sub,
+                )
+
+            G2PIntakeFormDataService.finalize_submission_with_session = patched_finalize_submission_with_session
+            _logger.info("ODK Hook: Patched G2PIntakeFormDataService.finalize_submission_with_session with AWE service token")
 
         if not hasattr(G2PIntakeFormDataService, "_odk_patched_serialize_model"):
             G2PIntakeFormDataService._odk_patched_serialize_model = True
