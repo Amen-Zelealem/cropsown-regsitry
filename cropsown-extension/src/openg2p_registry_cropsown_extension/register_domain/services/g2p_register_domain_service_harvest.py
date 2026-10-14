@@ -57,11 +57,14 @@ class G2PRegisterDomainServiceHarvest(G2PRegisterDomainService):
         self._validate_no_duplicate_commodity_season(active_records)
 
     def _validate_no_duplicate_commodity_season(self, records: list[dict]) -> None:
-        seen: set[tuple[str, str, str]] = set()
+        seen: set[tuple[str, str, str, str]] = set()
         for record in records:
             commodity = str(
                 record.get("commodity")
-                or record.get("cluster_name")
+                or ""
+            ).strip()
+            cluster_name = str(
+                record.get("cluster_name")
                 or ""
             ).strip()
             season = str(
@@ -71,17 +74,25 @@ class G2PRegisterDomainServiceHarvest(G2PRegisterDomainService):
                 or ""
             ).strip()
             land_id = str(record.get("land_id") or "").strip()
-            if not commodity and not land_id:
+            raw_cs = record.get("cluster_status")
+            if isinstance(raw_cs, (list, tuple, set)):
+                cs_str = " ".join(str(item) for item in raw_cs if item).upper()
+            else:
+                cs_str = str(raw_cs or "").upper()
+            is_clustered = "CLUSTER" in cs_str and "INDEPENDENT" not in cs_str
+
+            if not commodity and not cluster_name and not land_id:
                 continue
-            key = (commodity, season, land_id)
+            item_ident = cluster_name if is_clustered else commodity
+            key = (item_ident, season, land_id, "CLUSTERED" if is_clustered else "INDEPENDENT")
             if key in seen:
-                if record.get("commodity"):
+                if is_clustered:
                     validation_error(
-                        "Duplicate commodity entries for the same season and land are not allowed"
+                        "Duplicate cluster harvest entries for the same season, land and cluster are not allowed"
                     )
                 else:
                     validation_error(
-                        "Duplicate harvest entries for the same season and land are not allowed"
+                        "Duplicate commodity entries for the same season and land are not allowed"
                     )
             seen.add(key)
 
