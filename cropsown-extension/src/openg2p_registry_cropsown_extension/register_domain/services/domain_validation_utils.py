@@ -79,8 +79,9 @@ def validate_alphabetical_name(value, field_name: str) -> None:
     if is_blank(value):
         return
     import re
-    if not re.match(r"^[a-zA-Z\s]+$", str(value)):
-        validation_error(f"{field_name} must contain only alphabetical characters and spaces")
+    # Allow alphanumeric characters, spaces, hyphens, and dots for DA/Supervisor/Farmer names
+    if not re.match(r"^[a-zA-Z0-9\s\.\-_]+$", str(value).strip()):
+        validation_error(f"{field_name} must contain only alphabetical characters, numbers, and spaces")
 
 
 def validate_mobile_number(value, field_name: str) -> None:
