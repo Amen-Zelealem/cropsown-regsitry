@@ -11,6 +11,7 @@ from openg2p_fastapi_common.context import dbengine
 from openg2p_registry_core.app import Initializer as CoreInitializer
 
 from .register_domain.models import (
+    G2PRegisterFarmer, G2PRegisterHistoryFarmer, G2PIntakeFormFarmer,
     G2PRegisterCropSown, G2PRegisterHistoryCropSown,
     G2PRegisterPlanning, G2PRegisterHistoryPlanning,
     G2PRegisterCultivation, G2PRegisterHistoryCultivation,
@@ -164,6 +165,9 @@ class Initializer(BaseInitializer):
 # own) and every crop line hangs off it. A new model must be added here, or
 # neither its table nor its later columns reach the database.
 MIGRATED_MODELS = (
+    # The Farmer identity register (its own tables); the two-CR flow and the
+    # Farmer section of the intake form write here.
+    G2PRegisterFarmer, G2PRegisterHistoryFarmer, G2PIntakeFormFarmer,
     G2PRegisterCropSown, G2PRegisterHistoryCropSown, G2PIntakeFormCropSown,
     # The seven crop lines, all children of the crop sown record.
     G2PRegisterPlanning, G2PRegisterHistoryPlanning, G2PIntakeFormPlanning,
