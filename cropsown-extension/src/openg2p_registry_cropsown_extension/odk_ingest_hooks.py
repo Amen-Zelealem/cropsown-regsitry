@@ -367,6 +367,89 @@ async def resolve_geo_label(code: str | None, level_prefix: str = "") -> str | N
     return cleaned
 
 
+async def build_geo_hierarchy_from_db(val: str | None) -> dict | None:
+    """Build full geo hierarchy JSON and canonical level_value_id from master-data."""
+    if not val:
+        return None
+    val_str = str(val).strip()
+    if not val_str:
+        return None
+
+    clean_val = val_str
+    for pfx in ("KEBELE_", "WOREDA_", "ZONE_", "REGION_"):
+        if clean_val.startswith(pfx):
+            clean_val = clean_val[len(pfx):]
+            break
+
+    try:
+        engine = _get_master_data_engine()
+        from sqlalchemy.ext.asyncio import async_sessionmaker
+        from sqlalchemy import text
+
+        session_maker = async_sessionmaker(engine, expire_on_commit=False)
+        async with session_maker() as session:
+            candidates = [
+                val_str,
+                clean_val,
+                f"kebele-{clean_val}",
+                f"woreda-{clean_val}",
+                f"zone-{clean_val}",
+                f"region-{clean_val}",
+            ]
+            q = text(
+                "SELECT level_value_id FROM g2p_geo_level_values "
+                "WHERE level_value_id = :c1 OR level_value_id = :c2 OR level_value_id = :c3 "
+                "OR level_value_id = :c4 OR level_value_id = :c5 OR level_value_id = :c6 "
+                "OR level_value_id ILIKE :c_like LIMIT 1"
+            )
+            res = await session.execute(
+                q,
+                {
+                    "c1": candidates[0],
+                    "c2": candidates[1],
+                    "c3": candidates[2],
+                    "c4": candidates[3],
+                    "c5": candidates[4],
+                    "c6": candidates[5],
+                    "c_like": f"%{clean_val}",
+                },
+            )
+            row = res.fetchone()
+            if not row:
+                return None
+            lowest_id = row[0]
+
+            hierarchy = []
+            curr = lowest_id
+            while curr:
+                r = await session.execute(
+                    text(
+                        "SELECT lv.level_value_id, lv.level_value_mnemonic, lv.parent_level_value_id, l.level_mnemonic "
+                        "FROM g2p_geo_level_values lv "
+                        "JOIN g2p_geo_levels l ON lv.level_id = l.level_id "
+                        "WHERE lv.level_value_id = :val_id"
+                    ),
+                    {"val_id": curr},
+                )
+                node = r.fetchone()
+                if not node:
+                    break
+                hierarchy.append(
+                    {
+                        "level": node.level_mnemonic,
+                        "level_mnemonic": node.level_mnemonic,
+                        "level_value_id": node.level_value_id,
+                        "level_value_mnemonic": node.level_value_mnemonic,
+                    }
+                )
+                curr = node.parent_level_value_id
+            hierarchy.reverse()
+            return {"hierarchy": hierarchy, "lowest_level_value_id": lowest_id}
+    except Exception as e:
+        _logger.debug("ODK Hook: build_geo_hierarchy_from_db error: %s", e)
+        return None
+
+
 def _alias_extension_modules():
     """Ensure openg2p_registry_extensions and all its subpackages alias to cropsown extension."""
     ext = os.environ.get("REGISTRY_EXTENSION_MODULE", "openg2p_registry_cropsown_extension")
@@ -548,13 +631,33 @@ def _patch_celery_worker():
                                         except Exception:
                                             pass
 
-                        # Ensure cs_cropsown_location has gps_coordinate
+                        # Ensure cs_cropsown_location has gps_coordinate and geo_code_hierarchy_json
                         loc_rows = transformed_data.get("cs_cropsown_location") or []
                         for lr in loc_rows:
                             lat = lr.get("latitude")
                             lon = lr.get("longitude")
                             if lat and lon and not lr.get("gps_coordinate"):
                                 lr["gps_coordinate"] = f"{lat}, {lon}"
+
+                        # Enrich geo_code_hierarchy_json and canonical geo_lowest_level_value_id
+                        for sec_key in ("cs_intake_record", "cs_common_intake_record", "cs_cropsown_location"):
+                            for r in (transformed_data.get(sec_key) or []):
+                                lowest_val = r.get("geo_lowest_level_value_id") or r.get("kebele") or r.get("woreda")
+                                if lowest_val and not r.get("geo_code_hierarchy_json"):
+                                    geo_res = await build_geo_hierarchy_from_db(lowest_val)
+                                    if geo_res:
+                                        r["geo_code_hierarchy_json"] = geo_res
+                                        r["geo_lowest_level_value_id"] = geo_res["lowest_level_value_id"]
+                                        # Also ensure region, zone, woreda, kebele codes match canonical attribute values
+                                        for h in geo_res.get("hierarchy", []):
+                                            lvl = h.get("level")
+                                            val_id = h.get("level_value_id")
+                                            val_mnemonic = h.get("level_value_mnemonic")
+                                            if lvl in ("region", "zone", "woreda", "kebele") and val_id:
+                                                code = str(val_id).upper().replace("-", "_")
+                                                r[lvl] = code
+                                                if val_mnemonic:
+                                                    r[f"{lvl}_name"] = val_mnemonic
                     except Exception as e:
                         _logger.debug("Error in auto-enriching intake submission: %s", e)
 

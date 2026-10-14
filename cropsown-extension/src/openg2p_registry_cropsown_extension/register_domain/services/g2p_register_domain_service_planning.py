@@ -64,7 +64,7 @@ class G2PRegisterDomainServicePlanning(G2PRegisterDomainService):
             validation_error("planned_area must be greater than zero when provided")
             
         land_area = as_float(record.get("land_area"))
-        if planned_area is not None and land_area is not None:
+        if planned_area is not None and land_area is not None and land_area > 0:
             if planned_area > land_area:
                 validation_error(f"Planned Crop Area ({planned_area} ha) cannot be greater than Total Land Area ({land_area} ha).")
 
@@ -77,8 +77,8 @@ class G2PRegisterDomainServicePlanning(G2PRegisterDomainService):
 
         for land_id, land_records in by_land.items():
             total_planned = sum(as_float(r.get("planned_area")) or 0.0 for r in land_records)
-            land_area = next((as_float(r.get("land_area")) for r in land_records if as_float(r.get("land_area")) is not None), None)
-            if land_area is not None and total_planned > land_area + 1e-6:
+            land_area = next((as_float(r.get("land_area")) for r in land_records if as_float(r.get("land_area")) is not None and as_float(r.get("land_area")) > 0), None)
+            if land_area is not None and land_area > 0 and total_planned > land_area + 1e-6:
                 validation_error(
                     f"Total Planned Crop Area ({total_planned:g} ha) across all records for Land ID '{land_id}' "
                     f"exceeds Total Land Area ({land_area:g} ha)."

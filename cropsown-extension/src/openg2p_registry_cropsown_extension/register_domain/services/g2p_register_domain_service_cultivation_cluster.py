@@ -75,8 +75,8 @@ class G2PRegisterDomainServiceCultivationCluster(G2PRegisterDomainService):
 
     def _validate_cluster_area(self, record: dict) -> None:
         area = as_float(record.get("cluster_area_hectare"))
-        if area is not None and area <= 0:
-            validation_error("cluster_area_hectare must be greater than zero when provided")
+        if area is not None and area < 0:
+            validation_error("cluster_area_hectare must not be negative")
 
     def _validate_smallholders(self, record: dict) -> None:
         for field in ("number_of_smallholders",):

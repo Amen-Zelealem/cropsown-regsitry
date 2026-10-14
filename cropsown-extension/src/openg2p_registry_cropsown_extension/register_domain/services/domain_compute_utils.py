@@ -93,7 +93,7 @@ def is_date_in_season(test_date, start_month, start_day, end_month, end_day) -> 
         return True
     sm, sd = as_int(start_month), as_int(start_day)
     em, ed = as_int(end_month), as_int(end_day)
-    if None in (sm, sd, em, ed):
+    if None in (sm, sd, em, ed) or 0 in (sm, sd, em, ed):
         return True
 
     tm, td = test_date.month, test_date.day
