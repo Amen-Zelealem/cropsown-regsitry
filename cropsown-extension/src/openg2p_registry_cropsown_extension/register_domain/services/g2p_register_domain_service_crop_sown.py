@@ -9,8 +9,6 @@ from openg2p_registry_core.models import G2PRegisterChangeRequest
 from openg2p_registry_core.services import G2PRegisterDomainService
 
 from .domain_validation_utils import as_float, as_int, validation_error, get_row_field
-from .domain_validation_utils import as_float, as_int, is_blank, validation_error
-from .farmer_registry_enrichment import compose_farmer_name, fetch_farmer_record, to_farmer_fields
 
 _logger = logging.getLogger("g2p-register-domain-service")
 
@@ -36,9 +34,6 @@ class G2PRegisterDomainServiceCropSown(G2PRegisterDomainService):
         section_id = kwargs.get("section_id")
         for record in records:
             sec_id = section_id or record.get("section_id") or record.get("_section_id")
-            # On submit, the Farmer Registry's copy of this farmer replaces the
-            # typed identity (matched on BOTH Farmer ID + Fayda). Fails open.
-            await self._enrich_from_farmer_registry(record)
 
             if "latitude" in record and record["latitude"] is not None:
                 record["latitude"] = str(record["latitude"])
@@ -208,37 +203,6 @@ class G2PRegisterDomainServiceCropSown(G2PRegisterDomainService):
                     f"Crop Year cannot be changed once established for a Crop Sown record (Existing: '{existing_year}', Attempted: '{new_year}')."
                 )
 
-    async def _enrich_from_farmer_registry(self, record: dict) -> None:
-        """Replace the typed farmer identity with the Farmer Registry's record,
-        matched on BOTH Farmer ID and Fayda FAN ID (both-required) via a signed,
-        consent-carrying DCI search. The registry's data wins over the operator's.
-        Fails open: leaves the record as typed when enrichment is off/misconfigured,
-        both ids are blank, or there is no single match (see
-        farmer_registry_enrichment.fetch_farmer_record)."""
-        farmer_id = record.get("farmer_id")
-        fayda = record.get("fayda_fan_id") or record.get("fayda_id")
-        # Normalise the legacy space-grouped Fayda to digits-only before lookup —
-        # the Farmer Registry's foundational_id is stored without spaces.
-        if not is_blank(fayda):
-            fayda = re.sub(r"\s+", "", str(fayda))
-        if is_blank(farmer_id) and is_blank(fayda):
-            return
-        # Best-effort: a config, lookup, or field-conversion problem must not block
-        # submit — log and keep the operator's typed values. Only the in-memory
-        # record dict is touched here; no DB write happens in this method.
-        try:
-            personal = await fetch_farmer_record(farmer_id, fayda)
-            if not personal:
-                return
-            fields = to_farmer_fields(personal)
-            name = compose_farmer_name(fields.get("first_name"), fields.get("middle_name"), fields.get("last_name"))
-            if name:
-                record["farmer_name"] = name
-            if not is_blank(fields.get("fayda_fan_id")) and is_blank(record.get("fayda_fan_id")):
-                record["fayda_fan_id"] = fields["fayda_fan_id"]
-            _logger.info("Enriched crop_sown farmer %s from Farmer Registry: name=%s", farmer_id, name)
-        except Exception as exc:
-            _logger.warning("CropSown farmer enrichment skipped for %s (kept typed values): %r", farmer_id, exc)
 
     async def _validate_fayda_season_and_year(self, record: dict, session) -> None:
         """
@@ -274,15 +238,12 @@ class G2PRegisterDomainServiceCropSown(G2PRegisterDomainService):
 
         if requires_existing_record:
             from sqlalchemy import text
-            # Normalise BOTH sides to digits-only so a legacy space-grouped saved
-            # Fayda ("1234 5678 9000 3456") matches a digits-only incoming id and
-            # vice versa — the stored column may predate the normalisation.
             query = (
                 "SELECT internal_record_id::text, crop_year, production_season "
                 "FROM g2p_register_crop_sowns "
-                "WHERE regexp_replace(fayda_fan_id, '\\s+', '', 'g') = :fayda AND record_status = 'ACTIVE'"
+                "WHERE fayda_fan_id = :fayda AND record_status = 'ACTIVE'"
             )
-            params = {"fayda": re.sub(r"\s+", "", str(fayda_fan_id))}
+            params = {"fayda": str(fayda_fan_id).strip()}
             if crop_year:
                 query += " AND crop_year = :c_year"
                 params["c_year"] = str(crop_year).strip()
