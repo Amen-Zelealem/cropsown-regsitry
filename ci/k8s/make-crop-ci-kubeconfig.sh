@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # Write a kubeconfig for the crop-ci service account (ci/k8s/crop-ci-dev.yaml),
-# for the gen2-dev-kubeconfig Jenkins credential. Run with an admin KUBECONFIG
+# for the gen2-dev-new-kubeconfig Jenkins credential. Run with an admin KUBECONFIG
 # for the dev cluster:
 #
 #   KUBECONFIG=<admin kubeconfig> ./ci/k8s/make-crop-ci-kubeconfig.sh > crop-ci.kubeconfig
 #
-# Then in Jenkins: Manage Jenkins → Credentials → gen2-dev-kubeconfig → Update →
-# replace the secret file with crop-ci.kubeconfig, and delete the local copy.
+# Then in Jenkins: Manage Jenkins → Credentials → (global) → Add Credentials →
+# Kind "Secret file", file crop-ci.kubeconfig, ID gen2-dev-new-kubeconfig — and
+# delete the local copy. gen2-dev-kubeconfig stays on the old dev (10.0.1.166).
 set -euo pipefail
 SERVER="${SERVER:-https://10.0.1.58:6443}"
 NS="${NS:-crop}"
