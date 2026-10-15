@@ -277,10 +277,9 @@ pipeline {
                 // The subchart rejects release names over 18 characters, and
                 // cropsown-registry is 17.
                 HELM_RELEASE          = 'cropsown-registry'
-                // Dev's public hosts are <namespace>.openg2p.test; the subchart
-                // defaults them to .openg2p.org placeholders, which breaks
-                // Keycloak, MinIO and IAM.
-                BASE_DOMAIN           = '{{ .Release.Namespace }}.openg2p.test'
+                // No BASE_DOMAIN here: ci/deploy-crop-dev.sh's defaults own the
+                // hosts — internal ones on <namespace>.openg2p.test, the staff
+                // UI's app/IAM URLs and cookie domain on .oanstaging.com.
             }
             steps {
                 // The workspace outlives builds, and nothing cleans a file this
