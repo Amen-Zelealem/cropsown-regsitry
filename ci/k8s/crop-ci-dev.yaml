@@ -1,0 +1,72 @@
+# The crop namespace on the dev cluster (RKE2 at https://10.0.1.58:6443) and the
+# crop-ci service account the Jenkinsfile's Deploy stage deploys it with.
+#
+# Apply ONCE, as a cluster admin (e.g. the kubectl shell in Rancher):
+#
+#   kubectl apply -f ci/k8s/crop-ci-dev.yaml
+#
+# then build the gen2-dev-new-kubeconfig Jenkins credential from it with
+# ci/k8s/make-crop-ci-kubeconfig.sh.
+#
+# crop-ci gets the built-in `admin` role in crop and nothing wider, plus the
+# Istio routing the chart creates, which `admin` does not cover. It cannot
+# create namespaces, which is why crop is declared here.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: crop
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: crop-ci
+  namespace: crop
+---
+# A long-lived token for the kubeconfig (Kubernetes no longer creates one).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: crop-ci-token
+  namespace: crop
+  annotations:
+    kubernetes.io/service-account.name: crop-ci
+type: kubernetes.io/service-account-token
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: crop-ci-admin
+  namespace: crop
+subjects:
+  - kind: ServiceAccount
+    name: crop-ci
+    namespace: crop
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: admin
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ci-deploy-istio
+  namespace: crop
+rules:
+  - apiGroups: ["networking.istio.io", "security.istio.io"]
+    resources: ["*"]
+    verbs: ["*"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: crop-ci-istio
+  namespace: crop
+subjects:
+  - kind: ServiceAccount
+    name: crop-ci
+    namespace: crop
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ci-deploy-istio
