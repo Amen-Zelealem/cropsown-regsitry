@@ -31,6 +31,8 @@
 #   DASHBOARD_API_ECR default openg2p/cropsown-registry/dashboard-api
 #   HELM_RELEASE     default cropsown-registry
 #   HELM_NAMESPACE   default crop
+#   EXPECTED_SERVER  default https://10.0.1.58:6443 — refuse any other API server
+#                    (empty disables the check)
 #   HELM_CHART_DIR   default helm/openg2p-cropsown-registry
 #   BASE_DOMAIN      default <namespace>.openg2p.test (as a helm template)
 #   RUN_DB_SEED      true|false, default true   run the db-seed hook Job
@@ -57,6 +59,7 @@ ECR_BASE="${ECR_BASE:-gen2/cropsown-registry}"
 DASHBOARD_API_ECR="${DASHBOARD_API_ECR:-openg2p/cropsown-registry/dashboard-api}"
 HELM_RELEASE="${HELM_RELEASE:-cropsown-registry}"
 HELM_NAMESPACE="${HELM_NAMESPACE:-crop}"
+EXPECTED_SERVER="${EXPECTED_SERVER-https://10.0.1.58:6443}"
 HELM_CHART_DIR="${HELM_CHART_DIR:-helm/openg2p-cropsown-registry}"
 # Unset means the dev default; set but EMPTY means "do not touch the release's
 # hosts" (staging, whose hosts are not <namespace>.openg2p.test).
@@ -92,7 +95,17 @@ say() { echo "=== $* ==="; }
 
 # ── 1. Preflight ───────────────────────────────────────────────────────────────
 say "Deploy target"
-echo "server:    $(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
+SERVER="$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
+echo "server:    ${SERVER}"
+# The server comes from the kubeconfig credential, not this repo. A credential
+# still holding the old dev cluster's kubeconfig (10.0.1.166) deployed there
+# without complaint, so stop before touching anything.
+if [ -n "$EXPECTED_SERVER" ] && [ "${SERVER%/}" != "${EXPECTED_SERVER%/}" ]; then
+  echo "ERROR: KUBECONFIG points at ${SERVER:-<none>}, expected ${EXPECTED_SERVER}." >&2
+  echo "  Replace the Jenkins credential (crop-dev-kubeconfig) with the crop-ci kubeconfig" >&2
+  echo "  for ${EXPECTED_SERVER} — see ci/k8s/make-crop-ci-kubeconfig.sh." >&2
+  exit 1
+fi
 echo "namespace: ${HELM_NAMESPACE}"
 echo "release:   ${HELM_RELEASE}"
 echo "images:    ${ECR}/*:${TAG}"
