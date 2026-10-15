@@ -160,6 +160,11 @@ fi
 say "helm dependency build"
 helm repo add openg2p https://openg2p.github.io/openg2p-helm >/dev/null 2>&1 || true
 helm repo update openg2p >/dev/null
+# Chart.lock and charts/ are gitignored, so neither checkout nor unstash clears
+# them: a lock left in the agent's workspace by an older build still pins the
+# previous openg2p-registry version, and `helm dependency build` then fails with
+# "the lock file (Chart.lock) is out of sync". Resolve fresh from Chart.yaml.
+rm -f "$HELM_CHART_DIR/Chart.lock" "$HELM_CHART_DIR"/charts/*.tgz
 helm dependency build "$HELM_CHART_DIR"
 
 # ── 3. Values this build owns ──────────────────────────────────────────────────
