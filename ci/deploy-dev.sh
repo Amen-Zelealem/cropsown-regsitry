@@ -7,10 +7,9 @@
 # supplies the tag and the credentials; everything else defaults to what the
 # pipeline uses, so a manual run lands exactly where a pipeline run would.
 #
-# It deploys whatever cluster KUBECONFIG points at. In Jenkins that is the
-# staging-farmer-kubeconfig credential, used from the vpn-agent2 node (the
-# cluster farmer-registry's far namespace is on); by hand
-# it is yours, so the context is printed before anything is changed.
+# It deploys whatever cluster KUBECONFIG points at — yours, so the context is
+# printed before anything is changed. The Jenkinsfile no longer runs it: the dev
+# deploy is ci/deploy-crop-dev.sh (crop-dev-kubeconfig, https://10.0.1.58:6443).
 #
 # The images must already be in ECR — this builds nothing.
 #
@@ -182,6 +181,10 @@ fi
 # openg2p-registry subchart, so the dependency must be present before install.
 helm repo add openg2p https://openg2p.github.io/openg2p-helm || true
 helm repo update openg2p || true
+# Chart.lock and charts/ are gitignored, so a lock left in the workspace by an
+# older build survives checkout and still pins the previous openg2p-registry
+# version — `helm dependency build` then fails "out of sync" with Chart.yaml.
+rm -f "./${CHART_DIR}/Chart.lock" "./${CHART_DIR}"/charts/*.tgz
 helm dependency build "./${CHART_DIR}"
 
 # Point one chart component at an image built by this pipeline.
