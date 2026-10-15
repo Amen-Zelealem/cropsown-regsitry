@@ -12,14 +12,14 @@ INSERT INTO "public"."registry_theme_values" ("theme_value_id","theme_id","attri
 
 -- Values for the ATI brand themes. Each leads with a different brand colour
 -- and carries four more; black/white are used only for text.
-INSERT INTO "public"."registry_theme_values" ("theme_value_id","theme_id","attribute_name","attribute_value") VALUES ,
+INSERT INTO "public"."registry_theme_values" ("theme_value_id","theme_id","attribute_name","attribute_value") VALUES
 ('1bda661e-6a7f-5f71-8765-42eb9b3edac0','9d109f28-ab6a-5617-bf27-649b0f92aa5a','font_family',''),
 ('30b56789-5a9e-57d8-8c18-d44aceb80273','9d109f28-ab6a-5617-bf27-649b0f92aa5a','font_url',''),
 ('dee55a48-880f-572a-8ccb-8a5afed93eb2','9d109f28-ab6a-5617-bf27-649b0f92aa5a','neutral_color_1','#000000'),
 ('ed9a4df3-3c6c-5125-9275-ac57ece35e41','9d109f28-ab6a-5617-bf27-649b0f92aa5a','neutral_color_2','#FFFFFF'),
-('68758b3c-3558-57e7-81c0-89355a5914bf','9d109f28-ab6a-5617-bf27-649b0f92aa5a','primary_color_1','#009147'),
-('a3396a7c-1c13-52fa-b136-741049885405','9d109f28-ab6a-5617-bf27-649b0f92aa5a','primary_color_2','#91AC34'),
-('8e351fc9-0ad8-5772-8a22-940d0bff0d88','9d109f28-ab6a-5617-bf27-649b0f92aa5a','secondary_color_1','#EEF2E1'),
+('68758b3c-3558-57e7-81c0-89355a5914bf','9d109f28-ab6a-5617-bf27-649b0f92aa5a','primary_color_1','#EABB13'),
+('a3396a7c-1c13-52fa-b136-741049885405','9d109f28-ab6a-5617-bf27-649b0f92aa5a','primary_color_2','#009147'),
+('8e351fc9-0ad8-5772-8a22-940d0bff0d88','9d109f28-ab6a-5617-bf27-649b0f92aa5a','secondary_color_1','#F3F1E4'),
 ('c6b7a11a-0b99-5938-81fc-85d11c1cb0a3','9d109f28-ab6a-5617-bf27-649b0f92aa5a','secondary_color_2','#FFDB00'),
 ('80e6df41-9407-5fcc-b2f6-62c0e8f30faa','9d109f28-ab6a-5617-bf27-649b0f92aa5a','secondary_color_3','#A1A1A1'),
 ('670bf2f9-146a-5925-a12b-395de462b484','b6df9c20-df62-549c-8147-2f872c4fced0','font_family',''),

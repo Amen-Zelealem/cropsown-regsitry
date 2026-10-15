@@ -45,6 +45,7 @@ class G2PCropSown:
     kebele: Mapped[str] = mapped_column(String, nullable=True)                # Attribute lookup (KEBELE)
     latitude: Mapped[str] = mapped_column(String, nullable=True)
     longitude: Mapped[str] = mapped_column(String, nullable=True)
+    altitude: Mapped[str] = mapped_column(String, nullable=True)
     # Denormalised admin names. The register search returns stored values as-is —
     # it does not join g2p_attribute_values — so a tree column bound to `region`
     # would print REGION_ET11. These carry the display name for those columns and
@@ -72,9 +73,13 @@ class G2PCropSown:
 
 
 # All Register classes should have the prefix G2PRegister
-class G2PRegisterCropSown(G2PRegister, G2PGeo, G2PCropSown):
+class G2PRegisterCropSown(G2PRegister, G2PCropSown, G2PGeo):
     __tablename__ = "g2p_register_crop_sowns"
     __table_args__ = {"extend_existing": True}
+
+    latitude: Mapped[str] = mapped_column(String, nullable=True)
+    longitude: Mapped[str] = mapped_column(String, nullable=True)
+    altitude: Mapped[str] = mapped_column(String, nullable=True)
 
     def get_search_text_fields(self) -> str:
         """Return crop sown fields used to build search_text."""
@@ -86,15 +91,23 @@ class G2PRegisterCropSown(G2PRegister, G2PGeo, G2PCropSown):
 
 
 # All Register History classes should have the prefix G2PRegisterHistory
-class G2PRegisterHistoryCropSown(G2PRegisterHistory, G2PGeoHistory, G2PCropSown):
+class G2PRegisterHistoryCropSown(G2PRegisterHistory, G2PCropSown, G2PGeoHistory):
     __tablename__ = "g2p_register_history_crop_sowns"
     __table_args__ = {"extend_existing": True}
 
+    latitude: Mapped[str] = mapped_column(String, nullable=True)
+    longitude: Mapped[str] = mapped_column(String, nullable=True)
+    altitude: Mapped[str] = mapped_column(String, nullable=True)
+
 
 # All Intake Form classes should have the prefix G2PIntakeForm
-class G2PIntakeFormCropSown(G2PIntakeForm, G2PRegister, G2PGeo, G2PCropSown):
+class G2PIntakeFormCropSown(G2PIntakeForm, G2PRegister, G2PCropSown, G2PGeo):
     __tablename__ = "g2p_intake_form_crop_sowns"
     __table_args__ = {"extend_existing": True}
+
+    latitude: Mapped[str] = mapped_column(String, nullable=True)
+    longitude: Mapped[str] = mapped_column(String, nullable=True)
+    altitude: Mapped[str] = mapped_column(String, nullable=True)
 
     def get_search_text_fields(self) -> str:
         """Return crop sown fields used to build search_text."""

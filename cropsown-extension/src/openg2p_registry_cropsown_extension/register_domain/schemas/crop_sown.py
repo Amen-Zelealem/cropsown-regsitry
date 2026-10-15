@@ -31,8 +31,9 @@ class G2PSchemaCropSown:
     kebele: Optional[str] = None
     latitude: Optional[Union[float, int, str]] = None
     longitude: Optional[Union[float, int, str]] = None
+    altitude: Optional[Union[float, int, str]] = None
 
-    @field_validator("latitude", "longitude", mode="before")
+    @field_validator("latitude", "longitude", "altitude", mode="before")
     @classmethod
     def convert_lat_long_to_str(cls, v: Optional[Union[float, int, str]]) -> Optional[str]:
         if v is not None:

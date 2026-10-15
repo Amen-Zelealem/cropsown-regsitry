@@ -1,0 +1,8 @@
+{
+  "_comment": "Local dev config for the AWE admin UI. Login with the dev Keycloak user (staff/staff); AWE_ADMIN is assigned on client awe-admin-portal.",
+  "keycloak": {
+    "url": "http://keycloak.localtest.me:8080",
+    "realm": "staff",
+    "clientId": "awe-admin-portal"
+  }
+}

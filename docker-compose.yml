@@ -211,7 +211,7 @@ services:
       IAM_STAFF_CACHE_EXPIRE_SECONDS: '10'
       IAM_STAFF_AUTH_REFRESH_TOKEN_TTL_SECONDS: '1800'
       IAM_STAFF_AUTH_ENABLED: 'true'
-      IAM_STAFF_CSRF_ENABLED: 'true'
+      IAM_STAFF_CSRF_ENABLED: ${IAM_STAFF_CSRF_ENABLED:-false}
       IAM_STAFF_AUTH_VERIFY_SSL: 'false'
       IAM_STAFF_AUTH_COOKIE_HTTPONLY: 'true'
       IAM_STAFF_AUTH_COOKIE_PATH: /
@@ -268,12 +268,22 @@ services:
       # Container port is configurable, so it is set equal to the published port.
       MASTER_DATA_API_PORT: ${MASTER_DATA_PORT}
       MASTER_DATA_API_OPENAPI_ROOT_PATH: /
+      MASTER_DATA_API_AUTH_ENABLED: 'false'
+      COMMON_AUTH_ENABLED: 'false'
+      MASTER_DATA_API_CSRF_ENABLED: 'false'
+      COMMON_CSRF_ENABLED: 'false'
+      MASTER_DATA_API_AUTH_REDIS_URL: redis://redis:6379/0
+      MASTER_DATA_API_AUTH_TRANSACTION_STORE_BACKEND: redis
+      MASTER_DATA_API_AUTH_PROVIDER_API_URL: http://iam:8000
+      MASTER_DATA_API_KEYCLOAK_CLIENT_ID: ${AUTH_CLIENT_ID}
       COMMON_KEYCLOAK_CLIENT_ID: ${AUTH_CLIENT_ID}
       COMMON_AUTH_PROVIDER_API_URL: http://iam:8000
     ports:
       - '${MASTER_DATA_PORT}:${MASTER_DATA_PORT}'
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   id-generator:
@@ -323,6 +333,12 @@ services:
       REGISTRY_STAFF_PORTAL_API_DB_DBNAME: ${REGISTRY_DB}
       REGISTRY_STAFF_PORTAL_API_DB_USERNAME: ${REGISTRY_DB_USER}
       REGISTRY_STAFF_PORTAL_API_DB_PASSWORD: ${REGISTRY_DB_PASSWORD}
+      COMMON_DB_HOSTNAME: postgres
+      COMMON_DB_PORT: 5432
+      COMMON_DB_DBNAME: ${REGISTRY_DB}
+      COMMON_DB_USERNAME: ${REGISTRY_DB_USER}
+      COMMON_DB_PASSWORD: ${REGISTRY_DB_PASSWORD}
+      COMMON_DB_DRIVER: postgresql+asyncpg
       REGISTRY_STAFF_PORTAL_API_MASTER_DATA_DB_DRIVER: postgresql+asyncpg
       REGISTRY_STAFF_PORTAL_API_MASTER_DATA_DB_HOSTNAME: postgres
       REGISTRY_STAFF_PORTAL_API_MASTER_DATA_DB_PORT: 5432
@@ -332,8 +348,12 @@ services:
       REGISTRY_STAFF_PORTAL_API_OPENAPI_ROOT_PATH: /
       REGISTRY_STAFF_PORTAL_API_AUTH_PROVIDER_API_URL: http://iam:8000
       REGISTRY_STAFF_PORTAL_API_AUTH_REDIS_URL: redis://redis:6379/0
+      COMMON_AUTH_REDIS_URL: redis://redis:6379/0
+      COMMON_AUTH_PROVIDER_API_URL: http://iam:8000
+      COMMON_KEYCLOAK_CLIENT_ID: ${AUTH_CLIENT_ID}
+      AUTH_REDIS_URL: redis://redis:6379/0
       REGISTRY_STAFF_PORTAL_API_AUTH_REFRESH_TOKEN_TTL_SECONDS: '1800'
-      REGISTRY_STAFF_PORTAL_API_CSRF_ENABLED: 'true'
+      REGISTRY_STAFF_PORTAL_API_CSRF_ENABLED: ${REGISTRY_STAFF_PORTAL_API_CSRF_ENABLED:-false}
       REGISTRY_STAFF_PORTAL_API_KEYCLOAK_CLIENT_ID: ${AUTH_CLIENT_ID}
       REGISTRY_STAFF_PORTAL_API_MINIO_ENDPOINT: ${MINIO_HOST}:${MINIO_API_PORT}
       REGISTRY_STAFF_PORTAL_API_MINIO_SECURE: 'false'
@@ -347,8 +367,16 @@ services:
       # must match so pre-signed record-image URLs resolve.
       REGISTRY_STAFF_PORTAL_API_MINIO_BUCKET_NAME: ${DOCUMENTS_BUCKET}
       REGISTRY_STAFF_PORTAL_API_TEMPLATE_BUCKET_NAME: ${TEMPLATE_BUCKET}
-      REGISTRY_STAFF_PORTAL_API_AUDIT_ENABLED: ${AUDIT_ENABLED}
       REGISTRY_STAFF_PORTAL_API_AWE_ENABLED: ${AWE_ENABLED}
+      REGISTRY_STAFF_PORTAL_API_AWE_BASE_URL: http://awe:8000
+      REGISTRY_STAFF_PORTAL_API_AWE_DEFAULT_CALLBACK_URL: http://staff-api:8000/awe/webhooks/decision
+      REGISTRY_STAFF_PORTAL_API_AWE_CALLBACK_SECRET_ID: ${AWE_CALLBACK_SECRET_ID}
+      REGISTRY_STAFF_PORTAL_API_AWE_CALLBACK_HMAC_SECRET: ${AWE_CALLBACK_HMAC_SECRET}
+      REGISTRY_CORE_AWE_ENABLED: ${AWE_ENABLED}
+      REGISTRY_CORE_AWE_BASE_URL: http://awe:8000
+      REGISTRY_CORE_AWE_DEFAULT_CALLBACK_URL: http://staff-api:8000/awe/webhooks/decision
+      REGISTRY_CORE_AWE_CALLBACK_SECRET_ID: ${AWE_CALLBACK_SECRET_ID}
+      REGISTRY_CORE_AWE_CALLBACK_HMAC_SECRET: ${AWE_CALLBACK_HMAC_SECRET}
       APPROVER_RESOLVER_SECRET: ${APPROVER_RESOLVER_SECRET:-approver-resolver-secret}
       KEYCLOAK_URL: http://keycloak:8080
       KEYCLOAK_BASE_URL: http://keycloak:8080
@@ -357,6 +385,8 @@ services:
       AUTH_CLIENT_SECRET: ${AUTH_CLIENT_SECRET:-cropsown-staff-portal-secret}
     ports:
       - '${STAFF_API_PORT}:8000'
+    volumes:
+      - ./cropsown-extension/src/openg2p_registry_cropsown_extension:/usr/local/lib/python3.12/site-packages/openg2p_registry_cropsown_extension
     depends_on:
       postgres:
         condition: service_healthy
@@ -463,12 +493,34 @@ services:
       REGISTRY_CELERY_WORKERS_MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
       REGISTRY_CELERY_WORKERS_MINIO_BUCKET_NAME: ${DEFAULT_BUCKET}
       REGISTRY_CELERY_WORKERS_TEMPLATE_BUCKET_NAME: ${TEMPLATE_BUCKET}
+      REGISTRY_CORE_MINIO_ENDPOINT: ${MINIO_HOST}:${MINIO_API_PORT}
+      REGISTRY_CORE_MINIO_SECURE: 'false'
+      REGISTRY_CORE_MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
+      REGISTRY_CORE_MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
       # Functional ids for the crop sown registers come from the id-generator
       # pools in local/idgenerator/config.yaml.
       REGISTRY_CELERY_WORKERS_FUNCTIONAL_ID_GENERATION_URL: http://id-generator:8000/v1
       REGISTRY_CELERY_WORKERS_ID_GENERATION_ALLOCATION_PATH: '/idgenerator/{id_type}/id'
+      REGISTRY_CORE_AWE_ENABLED: 'true'
+      REGISTRY_CORE_AWE_BASE_URL: http://awe:8000
+      REGISTRY_CORE_AWE_DEFAULT_CALLBACK_URL: http://staff-api:8000/awe/webhooks/decision
+      REGISTRY_CORE_AWE_CALLBACK_SECRET_ID: ${AWE_CALLBACK_SECRET_ID}
+      REGISTRY_CORE_AWE_CALLBACK_HMAC_SECRET: ${AWE_CALLBACK_HMAC_SECRET}
+      REGISTRY_CELERY_WORKERS_AWE_ENABLED: 'true'
+      REGISTRY_CELERY_WORKERS_AWE_BASE_URL: http://awe:8000
+      REGISTRY_CELERY_WORKERS_AWE_DEFAULT_CALLBACK_URL: http://staff-api:8000/awe/webhooks/decision
+      REGISTRY_CELERY_WORKERS_AWE_CALLBACK_SECRET_ID: ${AWE_CALLBACK_SECRET_ID}
+      REGISTRY_CELERY_WORKERS_AWE_CALLBACK_HMAC_SECRET: ${AWE_CALLBACK_HMAC_SECRET}
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_BASE_URL: http://keycloak:8080
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-staff}
+      AUTH_CLIENT_ID: ${AUTH_CLIENT_ID:-cropsown-staff-portal}
+      AUTH_CLIENT_SECRET: ${AUTH_CLIENT_SECRET:-cropsown-staff-portal-secret}
       CELERY_APP: openg2p_registry_celery_worker.main.celery_app
       CELERY_OPTS: worker -Q registry_worker_queue --loglevel=info
+    volumes:
+      - ./cropsown-extension/src/openg2p_registry_cropsown_extension:/usr/local/lib/python3.12/site-packages/openg2p_registry_cropsown_extension
+      - ./docker/celery/patches/intake_form_register_ingest_worker.py:/usr/local/lib/python3.12/site-packages/openg2p_registry_celery_worker/tasks/intake_form_register_ingest_worker.py
     depends_on:
       staff-api:
         condition: service_healthy
@@ -508,8 +560,25 @@ services:
       REGISTRY_CELERY_BEAT_OUTGEST_DATA_PUBLISH_BEAT_PRODUCER_FREQUENCY: '20'
       REGISTRY_CELERY_BEAT_OUTGEST_TOPIC_REGISTER_BEAT_PRODUCER_FREQUENCY: '20'
       REGISTRY_CELERY_BEAT_DEDUPLICATION_BEAT_PRODUCER_FREQUENCY: '30'
+      REGISTRY_CORE_AWE_ENABLED: 'true'
+      REGISTRY_CORE_AWE_BASE_URL: http://awe:8000
+      REGISTRY_CORE_AWE_DEFAULT_CALLBACK_URL: http://staff-api:8000/awe/webhooks/decision
+      REGISTRY_CORE_AWE_CALLBACK_SECRET_ID: ${AWE_CALLBACK_SECRET_ID}
+      REGISTRY_CORE_AWE_CALLBACK_HMAC_SECRET: ${AWE_CALLBACK_HMAC_SECRET}
+      REGISTRY_CELERY_WORKERS_AWE_ENABLED: 'true'
+      REGISTRY_CELERY_WORKERS_AWE_BASE_URL: http://awe:8000
+      REGISTRY_CELERY_WORKERS_AWE_DEFAULT_CALLBACK_URL: http://staff-api:8000/awe/webhooks/decision
+      REGISTRY_CELERY_WORKERS_AWE_CALLBACK_SECRET_ID: ${AWE_CALLBACK_SECRET_ID}
+      REGISTRY_CELERY_WORKERS_AWE_CALLBACK_HMAC_SECRET: ${AWE_CALLBACK_HMAC_SECRET}
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_BASE_URL: http://keycloak:8080
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-staff}
+      AUTH_CLIENT_ID: ${AUTH_CLIENT_ID:-cropsown-staff-portal}
+      AUTH_CLIENT_SECRET: ${AUTH_CLIENT_SECRET:-cropsown-staff-portal-secret}
       CELERY_APP: openg2p_registry_celery_beat.main.celery_app
       CELERY_OPTS: worker --beat --loglevel=info --schedule=/tmp/celery-beat-schedule.db
+    volumes:
+      - ./cropsown-extension/src/openg2p_registry_cropsown_extension:/usr/local/lib/python3.12/site-packages/openg2p_registry_cropsown_extension
     depends_on:
       staff-api:
         condition: service_healthy
@@ -895,6 +964,38 @@ services:
       - '${CONNECTOR_UI_PORT:-5173}:8080'
     depends_on:
       connector-api:
+        condition: service_healthy
+
+  awe:
+    image: registry.gitlab.com/openg2p/platform-services/awe/openg2p-awe:0.0.0-develop.67
+    <<: *amd64
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: awe
+      DB_USER: postgres
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      CONFIG_PATH: /app/config/awe-config.yaml
+      UVICORN_PORT: 8000
+    volumes:
+      - ./local/awe/awe-config.yaml:/app/config/awe-config.yaml:ro
+    ports:
+      - '${AWE_API_PORT:-8032}:8000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+
+  awe-ui:
+    image: registry.gitlab.com/openg2p/platform-services/awe/openg2p-awe-ui:0.0.0-develop.67
+    <<: *amd64
+    volumes:
+      - ./local/awe/awe-ui-config.json:/usr/share/nginx/html/config.json:ro
+    ports:
+      - '${AWE_UI_PORT:-8033}:8080'
+    depends_on:
+      awe:
         condition: service_healthy
 
 volumes:

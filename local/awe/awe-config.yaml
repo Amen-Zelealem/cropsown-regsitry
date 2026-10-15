@@ -1,0 +1,29 @@
+awe:
+  service_id: openg2p.awe
+  api_version: "1.0"
+  module: registry
+
+  webhook:
+    timeout_seconds: 10
+    max_attempts: 6
+    backoff_seconds: [60, 300, 900, 3600, 21600]
+    poll_interval_seconds: 2
+    batch_size: 20
+
+  resolver:
+    http_timeout_seconds: 5
+
+  sla:
+    check_interval_seconds: 300
+
+  keycloak:
+    base_url: "http://keycloak:8080"
+    realm: "staff"
+    admin_client_id: awe-admin-resolver
+    admin_client_secret: "dev-awe-resolver-secret"
+    issuer: "http://keycloak.localtest.me:8080/realms/staff"
+    jwks_url: "http://keycloak:8080/realms/staff/protocol/openid-connect/certs"
+    audience: ""
+
+  notifier:
+    enabled: false

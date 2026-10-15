@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from openg2p_registry_core.models import G2PRegisterChangeRequest
 from openg2p_registry_core.services import G2PRegisterDomainService
 
+from .domain_validation_utils import as_float, as_int, validation_error, get_row_field
 from .domain_validation_utils import as_float, as_int, is_blank, validation_error
 from .farmer_registry_enrichment import compose_farmer_name, fetch_farmer_record, to_farmer_fields
 
@@ -50,7 +51,10 @@ class G2PRegisterDomainServiceCropSown(G2PRegisterDomainService):
             await self._sync_address_names_on_record(record, session)
 
             # Address & Survey Personnel section payloads: do not validate Farmer Identity header attributes
-            address_keys = ("geo_lowest_level_value_id", "geo_code_hierarchy_json", "latitude", "longitude")
+            address_keys = (
+                "geo_lowest_level_value_id", "geo_code_hierarchy_json", "latitude", "longitude",
+                "region", "zone", "woreda", "kebele", "sub_kebele", "agro_ecological_zone"
+            )
             personnel_keys = ("da_name", "da_mobile_number", "supervisor_name", "supervisor_mobile_number")
 
             is_address = (
@@ -71,11 +75,26 @@ class G2PRegisterDomainServiceCropSown(G2PRegisterDomainService):
                 self._validate_land_id(record)
                 continue
 
-            from .domain_validation_utils import validate_alphabetical_name
-            if record.get("farmer_name"):
-                validate_alphabetical_name(record.get("farmer_name"), "Farmer Name")
+            # If the record has no farmer identity fields and is not explicitly the farmer identity section, do not validate as Farmer Identity
+            farmer_identity_keys = ("crop_year", "production_season", "farmer_id", "fayda_fan_id", "fayda_id", "farmer_name")
+            is_farmer_identity = (
+                sec_id in (
+                    "cropsown_cropsown_record_section_01",
+                    "cropsown_common_intake_record_section_01",
+                    "cropsown_intake_record_section_01",
+                )
+                or any(k in record for k in farmer_identity_keys)
+                or any(isinstance(k, str) and any(k.endswith(f".{fk}") for fk in farmer_identity_keys) for k in record)
+            )
+            if not is_farmer_identity:
+                continue
 
-            is_common_intake = (sec_id == "cropsown_common_intake_record_section_01") or ("farmer_id" not in record and "fayda_fan_id" in record)
+            from .domain_validation_utils import validate_alphabetical_name
+            farmer_name = get_row_field(record, "farmer_name")
+            if farmer_name:
+                validate_alphabetical_name(farmer_name, "Farmer Name")
+
+            is_common_intake = (sec_id == "cropsown_common_intake_record_section_01")
 
             self._validate_crop_year(record)
             self._validate_production_season(record)
@@ -131,7 +150,17 @@ class G2PRegisterDomainServiceCropSown(G2PRegisterDomainService):
         if not found_rec_id:
             return
 
-        new_season = record.get("production_season")
+        new_season = (
+            record.get("production_season")
+            or record.get("6b06a95a-9a6c-5a33-a33d-c1625716c59c.production_season")
+            or record.get("season")
+        )
+        if not new_season:
+            for k, v in record.items():
+                if isinstance(k, str) and (k.endswith("production_season") or k.endswith("season")) and v:
+                    new_season = v
+                    break
+
         if new_season and existing_season:
             p_clean = str(existing_season).replace("CROP_SEASON_", "").strip().upper()
             n_clean = str(new_season).replace("CROP_SEASON_", "").strip().upper()
@@ -163,7 +192,16 @@ class G2PRegisterDomainServiceCropSown(G2PRegisterDomainService):
                                 f"Production Season '{new_season}' does not match the Season '{r_c[0]}' established in {section_label} for this record."
                             )
 
-        new_year = record.get("crop_year")
+        new_year = (
+            record.get("crop_year")
+            or record.get("6b06a95a-9a6c-5a33-a33d-c1625716c59c.crop_year")
+        )
+        if not new_year:
+            for k, v in record.items():
+                if isinstance(k, str) and k.endswith("crop_year") and v:
+                    new_year = v
+                    break
+
         if new_year and existing_year:
             if str(new_year).strip() != str(existing_year).strip():
                 validation_error(
@@ -273,7 +311,7 @@ class G2PRegisterDomainServiceCropSown(G2PRegisterDomainService):
                 )
 
     def _validate_crop_year(self, record: dict) -> None:
-        crop_year = record.get("crop_year")
+        crop_year = get_row_field(record, "crop_year")
         if crop_year is None or str(crop_year).strip() in ("", "None", "null", "Select"):
             validation_error("Crop Year is required in Farmer Identity.")
         val_str = str(crop_year).strip()
@@ -287,13 +325,13 @@ class G2PRegisterDomainServiceCropSown(G2PRegisterDomainService):
             validation_error("Crop Year must not be in the future")
 
     def _validate_production_season(self, record: dict) -> None:
-        season = record.get("production_season")
+        season = get_row_field(record, "production_season") or get_row_field(record, "season")
         if season is None or str(season).strip() in ("", "None", "null", "Select"):
             validation_error("Production Season is required in Farmer Identity.")
 
     def _validate_farmer_id(self, record: dict) -> None:
         """Farmer ids come from the farmer registry as FR- plus ten digits."""
-        value = record.get("farmer_id")
+        value = get_row_field(record, "farmer_id")
         if value is None or str(value).strip() in ("", "None", "null", "Select"):
             validation_error("Farmer ID is required in Farmer Identity.")
         if not _FARMER_ID_PATTERN.match(str(value).strip()):
@@ -302,17 +340,12 @@ class G2PRegisterDomainServiceCropSown(G2PRegisterDomainService):
             )
 
     def _validate_fayda_fan_id(self, record: dict) -> None:
-        value = record.get("fayda_fan_id")
-        if value is None or str(value).strip() == "":
-            return
-        # Accept the legacy space-grouped format (e.g. "1234 5678 9000 3456") by
-        # normalising to digits-only first: the Farmer Registry's foundational_id
-        # is stored without spaces, so this is also what the enrichment lookup uses.
-        normalized = re.sub(r"\s+", "", str(value))
-        fyda_pattern = r'^\d{6,20}$'
-        if not re.match(fyda_pattern, normalized):
-            validation_error("Fayda ID (UIN) must be numeric digits, e.g. 4733616459")
-        record["fayda_fan_id"] = normalized
+        value = get_row_field(record, "fayda_fan_id") or get_row_field(record, "fayda_id")
+        if value is None or str(value).strip() in ("", "None", "null", "Select"):
+            validation_error("Fayda ID (FAN) is required in Farmer Identity.")
+        fyda_pattern = r"^\d{4} \d{4} \d{4} \d{4}$"
+        if not re.match(fyda_pattern, str(value).strip()):
+            validation_error("Fayda ID must be 16 digits formatted as 4 groups of 4 digits (e.g. 1234 5678 9000 3456) with no letters, special characters, or extra spaces within groups")
 
     def _validate_land_id(self, record: dict) -> None:
         from .domain_validation_utils import validate_land_id
@@ -701,7 +734,10 @@ class G2PRegisterDomainServiceCropSown(G2PRegisterDomainService):
 
         if session:
             from sqlalchemy import select, text
-            from openg2p_registry_core.models import G2PAttributeValue
+            try:
+                from openg2p_registry_core.models import G2PAttributeValue
+            except ImportError:
+                G2PAttributeValue = None
 
             for field, name_field in (("region", "region_name"), ("zone", "zone_name"),
                                       ("woreda", "woreda_name"), ("kebele", "kebele_name")):
@@ -709,16 +745,21 @@ class G2PRegisterDomainServiceCropSown(G2PRegisterDomainService):
                 if value_id:
                     code = str(value_id).upper().replace("-", "_")
                     record[field] = code
-                    if not record.get(name_field):
-                        row = (
-                            await session.execute(
-                                select(G2PAttributeValue).where(
-                                    (G2PAttributeValue.value_id == value_id) | (G2PAttributeValue.value_id == code)
+                    if not record.get(name_field) and G2PAttributeValue is not None:
+                        try:
+                            row = (
+                                await session.execute(
+                                    select(G2PAttributeValue).where(
+                                        (G2PAttributeValue.value_id == value_id) | (G2PAttributeValue.value_id == code)
+                                    )
                                 )
-                            )
-                        ).scalars().first()
-                        display_name = getattr(row, "value_display", None) if row else None
-                        record[name_field] = display_name or value_id
+                            ).scalars().first()
+                            display_name = getattr(row, "value_display", None) if row else None
+                            record[name_field] = display_name or value_id
+                        except Exception:
+                            record[name_field] = value_id
+                    elif not record.get(name_field):
+                        record[name_field] = value_id
 
             sub_id = record.get("submission_id")
             internal_id = (
@@ -758,7 +799,10 @@ class G2PRegisterDomainServiceCropSown(G2PRegisterDomainService):
         from sqlalchemy import text
         from sqlalchemy.ext.asyncio import async_sessionmaker
         from openg2p_registry_core.engine import get_engines
-        from openg2p_registry_core.models import G2PAttributeValue
+        try:
+            from openg2p_registry_core.models import G2PAttributeValue
+        except ImportError:
+            G2PAttributeValue = None
 
         from ..models import G2PRegisterCropSown
 
@@ -799,14 +843,19 @@ class G2PRegisterDomainServiceCropSown(G2PRegisterDomainService):
             # 1. Try local attributes table first
             code = str(value_id).upper().replace("-", "_")
             setattr(record, field, code)
-            row = (
-                await session.execute(
-                    select(G2PAttributeValue).where(
-                        (G2PAttributeValue.value_id == value_id) | (G2PAttributeValue.value_id == code)
-                    )
-                )
-            ).scalars().first()
-            display_name = getattr(row, "value_display", None) if row else None
+            display_name = None
+            if G2PAttributeValue is not None:
+                try:
+                    row = (
+                        await session.execute(
+                            select(G2PAttributeValue).where(
+                                (G2PAttributeValue.value_id == value_id) | (G2PAttributeValue.value_id == code)
+                            )
+                        )
+                    ).scalars().first()
+                    display_name = getattr(row, "value_display", None) if row else None
+                except Exception:
+                    display_name = None
             
             # 2. Fall back to master-data geo hierarchy values
             if not display_name:
