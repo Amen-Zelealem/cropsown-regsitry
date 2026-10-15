@@ -34,7 +34,11 @@
 #   EXPECTED_SERVER  default https://10.0.1.58:6443 — refuse any other API server
 #                    (empty disables the check)
 #   HELM_CHART_DIR   default helm/openg2p-cropsown-registry
-#   BASE_DOMAIN      default <namespace>.openg2p.test (as a helm template)
+#   BASE_DOMAIN      default <namespace>.openg2p.test (as a helm template) — the
+#                    in-cluster/internal-gateway hosts only, not the staff UI's
+#   STAFF_UI_APP_URL default https://crop-registry-development.oanstaging.com
+#   STAFF_IAM_URL    default https://staff-iam-development.oanstaging.com
+#   COOKIE_DOMAIN    default .oanstaging.com
 #   RUN_DB_SEED      true|false, default true   run the db-seed hook Job
 #   RUN_SANITY       true|false, default false  run the sanity seed + e2e hook Jobs
 #   RUN_IAM_REGISTER true|false, default false  run the IAM registration hook Job
@@ -64,6 +68,10 @@ HELM_CHART_DIR="${HELM_CHART_DIR:-helm/openg2p-cropsown-registry}"
 # Unset means the dev default; set but EMPTY means "do not touch the release's
 # hosts" (staging, whose hosts are not <namespace>.openg2p.test).
 BASE_DOMAIN="${BASE_DOMAIN-{{ .Release.Namespace \}\}.openg2p.test}"
+# The crop staff UI as browsers reach it (public names, like farmer's).
+STAFF_UI_APP_URL="${STAFF_UI_APP_URL:-https://crop-registry-development.oanstaging.com}"
+STAFF_IAM_URL="${STAFF_IAM_URL:-https://staff-iam-development.oanstaging.com}"
+COOKIE_DOMAIN="${COOKIE_DOMAIN:-.oanstaging.com}"
 RUN_DB_SEED="${RUN_DB_SEED:-true}"
 RUN_SANITY="${RUN_SANITY:-false}"
 # iam-register takes its token from the PUBLIC Keycloak URL
@@ -190,11 +198,6 @@ global:
   minioHost: 'minio-api.${BASE_DOMAIN}'
   idGeneratorHostname: 'idgenerator-{{ .Release.Name }}.${BASE_DOMAIN}'
   aweHostname: 'awe.${BASE_DOMAIN}'
-registry:
-  staffUi:
-    iamPublicUrl: 'https://staff-iam.${BASE_DOMAIN}'
-    envVars:
-      COOKIE_DOMAIN: '.${BASE_DOMAIN}'
 EOF
   VALUE_FILES+=(-f "$WORK/ci-hosts.yaml")
 else
@@ -202,6 +205,20 @@ else
   # whatever the release already carries.
   echo "BASE_DOMAIN is empty: leaving the release's host values untouched."
 fi
+# The staff UI's browser-facing URLs are the public oanstaging.com names, not
+# BASE_DOMAIN. Written on every deploy, after the live release's values: an
+# earlier deploy stored the .openg2p.test ones on the release, and layering
+# current-values.yaml would otherwise keep putting them back.
+cat > "$WORK/ci-public.yaml" <<EOF
+registry:
+  staffUi:
+    iamPublicUrl: '${STAFF_IAM_URL}'
+    envVars:
+      APP_URL: '${STAFF_UI_APP_URL}'
+      COOKIE_DOMAIN: '${COOKIE_DOMAIN}'
+EOF
+VALUE_FILES+=(-f "$WORK/ci-public.yaml")
+echo "staff UI: ${STAFF_UI_APP_URL}  iam: ${STAFF_IAM_URL}  cookie domain: ${COOKIE_DOMAIN}"
 # The pull secret goes on the namespace's `default` ServiceAccount, which every
 # pod in this release uses, NOT through global.imagePullSecrets: with that value
 # set, the idgenerator subchart (0.0.0-develop.42) renders
