@@ -2,13 +2,13 @@
 # Put a Jenkins agent on the openg2p-Gen2 WireGuard VPN, so the dev deploy can
 # reach the cluster.
 #
-# The dev cluster's API server — https://10.15.0.1:6443 in the gen2-kubeconfig
+# The dev cluster's API server — https://10.0.1.58:6443 in the gen2-kubeconfig
 # credential, the same address rancher.openg2p.test resolves to — is routable
 # only over the openg2p-Gen2 WireGuard VPN. An agent off the VPN builds and
 # pushes the images, then fails the dev deploy with
 #
-#   Error: kubernetes cluster unreachable: Get "https://10.15.0.1:6443/version":
-#   dial tcp 10.15.0.1:6443: i/o timeout
+#   Error: kubernetes cluster unreachable: Get "https://10.0.1.58:6443/version":
+#   dial tcp 10.0.1.58:6443: i/o timeout
 #
 # Run this ONCE, as root, on the machine that runs the pipeline's builds — the
 # Deploy to Dev stage runs on the same agent as the build. If Jenkins itself runs
@@ -26,7 +26,7 @@
 #      - AllowedIPs narrowed to the API server. The deploy talks to the API
 #        server and nothing else on the dev network; the cluster pulls the
 #        images from ECR itself. A peer config handed out for a person usually
-#        routes the whole 10.15.0.0/16 — or everything, with 0.0.0.0/0, which
+#        routes the whole dev network — or everything, with 0.0.0.0/0, which
 #        would send the agent's ECR pushes through the VPN too.
 #      - the DNS line dropped. The kubeconfig names the server by IP, and
 #        wg-quick hands DNS to resolvconf, which a bare agent often lacks — the
@@ -42,15 +42,15 @@
 #   ./ci/setup-agent-vpn.sh jenkins-agent.conf --dry-run   # show what would be
 #                                                          # written, keys hidden
 # Options:
-#   --allowed-ips CIDR[,CIDR]  routed through the tunnel (default 10.15.0.1/32)
+#   --allowed-ips CIDR[,CIDR]  routed through the tunnel (default 10.0.1.58/32)
 #   --iface NAME               interface / config name (default openg2p-gen2)
-#   --check HOST:PORT          must accept a connection once up (default 10.15.0.1:6443)
+#   --check HOST:PORT          must accept a connection once up (default 10.0.1.58:6443)
 #   --dry-run                  print the config that would be written and stop
 set -euo pipefail
 
-ALLOWED_IPS="10.15.0.1/32"
+ALLOWED_IPS="10.0.1.58/32"
 IFACE="openg2p-gen2"
-CHECK="10.15.0.1:6443"
+CHECK="10.0.1.58:6443"
 DRY_RUN=false
 PEER_CONF=""
 

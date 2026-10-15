@@ -782,8 +782,8 @@ an unsatisfiable label does not fail a build — it queues until the 90-minute
 timeout, which is how a successful build ended up red.
 
 **The agent must be on the openg2p-Gen2 WireGuard VPN.** The dev cluster's API
-server, `10.15.0.1:6443` (what `rancher.openg2p.test` resolves to), is routable
-only over that VPN; off it, the dev deploy fails on `dial tcp 10.15.0.1:6443:
+server, `10.0.1.58:6443` (what `rancher.openg2p.test` resolves to), is routable
+only over that VPN; off it, the dev deploy fails on `dial tcp 10.0.1.58:6443:
 i/o timeout`. Get a peer config issued for the agent by whoever runs the
 openg2p-Gen2 WireGuard server — not a copy of a person's, since two machines on
 one key knock each other off — and, once, as root on the agent (on the host, if
@@ -794,7 +794,7 @@ Jenkins runs in a container):
 sudo ./ci/setup-agent-vpn.sh jenkins-agent.conf
 ```
 
-It narrows the tunnel to the API server (`10.15.0.1/32`), so CI reaches that and
+It narrows the tunnel to the API server (`10.0.1.58/32`), so CI reaches that and
 nothing else on the dev network, enables it across reboots, and checks the API
 server answers. The deploy scripts check the same before running helm, and
 when they cannot connect the build ends **UNSTABLE** rather than failed: the

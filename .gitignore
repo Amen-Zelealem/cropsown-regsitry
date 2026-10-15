@@ -288,3 +288,6 @@ openg2p-connector-service/celerybeat-schedule*
 
 # CI checkout of the dashboard service (Jenkinsfile, stage "Checkout dashboard-api").
 .build/
+
+# kubeconfig written by ci/k8s/make-crop-ci-kubeconfig.sh (holds a token)
+*.kubeconfig

@@ -271,7 +271,7 @@ pipeline {
                 timeout(time: 60, unit: 'MINUTES')
             }
             environment {
-                // The dev cluster (RKE2 at 10.0.1.166), as its crop-ci service
+                // The dev cluster (RKE2 at 10.0.1.58), as its crop-ci service
                 // account.
                 KUBECONFIG_CREDENTIAL = 'gen2-dev-kubeconfig'
                 // The subchart rejects release names over 18 characters, and

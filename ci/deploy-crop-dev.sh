@@ -3,8 +3,8 @@
 #
 # The Jenkinsfile's Deploy to Dev stage runs this on the vpn-agent2 node with the
 # gen2-dev-kubeconfig credential (the crop-ci service account of the RKE2 cluster
-# at https://10.0.1.166:6443). It is a script, not inline Groovy, so a deploy by
-# hand is the same command:
+# at https://10.0.1.58:6443, set up by ci/k8s/crop-ci-dev.yaml). It is a script,
+# not inline Groovy, so a deploy by hand is the same command:
 #
 #   KUBECONFIG=<kubeconfig> AWS_ACCOUNT_ID=<id> ./ci/deploy-crop-dev.sh develop-42
 #
