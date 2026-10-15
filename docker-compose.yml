@@ -41,39 +41,6 @@ name: cropsown
 x-amd64: &amd64
   platform: linux/amd64
 
-# Farmer Registry DCI enrichment + two-CR settings, injected into the services
-# that run that code (staff-api, celery-worker). Values come from local/.env
-# (see the CROPSOWN_* block there). Disabled by default — set
-# CROPSOWN_FARMER_ENRICHMENT_ENABLED / CROPSOWN_TWO_CR_ENABLED to "true" and fill
-# the signing + DCI settings to turn it on.
-x-cropsown-enrichment-env: &cropsown-enrichment-env
-  CROPSOWN_FARMER_ENRICHMENT_ENABLED: ${CROPSOWN_FARMER_ENRICHMENT_ENABLED:-false}
-  CROPSOWN_FARMER_DCI_URL: ${CROPSOWN_FARMER_DCI_URL:-}
-  CROPSOWN_FARMER_DCI_TIMEOUT: ${CROPSOWN_FARMER_DCI_TIMEOUT:-10}
-  CROPSOWN_DCI_SENDER_ID: ${CROPSOWN_DCI_SENDER_ID:-cropsown}
-  CROPSOWN_DCI_RECEIVER_ID: ${CROPSOWN_DCI_RECEIVER_ID:-farmer-registry}
-  CROPSOWN_CM_SIGNING_KEY_PEM: ${CROPSOWN_CM_SIGNING_KEY_PEM:-}
-  # A mounted key file is read when the PEM text above is empty (see the volume).
-  CROPSOWN_CM_SIGNING_KEY_PATH: ${CROPSOWN_CM_SIGNING_KEY_PATH:-}
-  CROPSOWN_CM_SIGNING_KID: ${CROPSOWN_CM_SIGNING_KID:-}
-  CROPSOWN_CM_PARTNER_AUD: ${CROPSOWN_CM_PARTNER_AUD:-}
-  CROPSOWN_CM_CONTROLLER_ID: ${CROPSOWN_CM_CONTROLLER_ID:-}
-  CROPSOWN_CM_SCOPES: ${CROPSOWN_CM_SCOPES:-farmer_personal_details}
-  CROPSOWN_CM_ALG: ${CROPSOWN_CM_ALG:-EdDSA}
-  CROPSOWN_CM_PURPOSE: ${CROPSOWN_CM_PURPOSE:-share_farm_profile}
-  CROPSOWN_TWO_CR_ENABLED: ${CROPSOWN_TWO_CR_ENABLED:-false}
-  CROPSOWN_FARMER_REGISTER_ID: ${CROPSOWN_FARMER_REGISTER_ID:-}
-
-# The headless (ODK) ingestion path mints a service token to raise the Farmer CR;
-# celery-worker only. Values from local/.env.
-x-cropsown-odk-env: &cropsown-odk-env
-  CROPSOWN_ODK_KEYCLOAK_URL: ${CROPSOWN_ODK_KEYCLOAK_URL:-}
-  CROPSOWN_ODK_KEYCLOAK_REALM: ${CROPSOWN_ODK_KEYCLOAK_REALM:-}
-  CROPSOWN_ODK_SERVICE_CLIENT_ID: ${CROPSOWN_ODK_SERVICE_CLIENT_ID:-}
-  CROPSOWN_ODK_SERVICE_CLIENT_SECRET: ${CROPSOWN_ODK_SERVICE_CLIENT_SECRET:-}
-  CROPSOWN_ODK_SERVICE_USERNAME: ${CROPSOWN_ODK_SERVICE_USERNAME:-}
-  CROPSOWN_ODK_SERVICE_PASSWORD: ${CROPSOWN_ODK_SERVICE_PASSWORD:-}
-
 services:
   # ───────────────────────────────────────────────────────────────────────────
   # Infrastructure (chart equivalent: the `commons-base` release)
@@ -116,7 +83,7 @@ services:
       retries: 20
 
   minio:
-    image: chainguard/minio:latest
+    image: minio/minio:latest
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
@@ -133,26 +100,36 @@ services:
           # name, so it has to resolve identically inside and outside.
           - ${MINIO_HOST}
     healthcheck:
-      # chainguard/minio has bash (with working /dev/tcp) but no curl; probe the API port.
-      test: ['CMD', 'bash', '-c', 'exec 3<>/dev/tcp/localhost/9000']
+      test: ['CMD', 'mc', 'ready', 'local']
       interval: 5s
       timeout: 5s
       retries: 30
 
   minio-init:
-    image: chainguard/minio-client:latest
+    image: minio/mc:latest
     # The MinIO chart creates no buckets; the platform's DocumentBucket enum
     # requires these three to exist, with the physical name equal to the enum
-    # value. chainguard's mc client is distroless (no shell), so the alias is
-    # configured via MC_HOST_local and all buckets are made in one `mc mb` call.
+    # value.
     depends_on:
       minio:
         condition: service_healthy
+    entrypoint:
+      - sh
+      - -c
+      - |
+        set -e
+        mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"
+        for b in "$$DEFAULT_BUCKET" "$$TEMPLATE_BUCKET" "$$DOCUMENTS_BUCKET"; do
+          mc mb --ignore-existing "local/$$b"
+        done
+        echo "buckets ready"
     environment:
-      MC_HOST_local: http://${MINIO_ROOT_USER}:${MINIO_ROOT_PASSWORD}@minio:9000
-    entrypoint: ['/usr/bin/mc']
-    command: ['mb', '--ignore-existing', 'local/${DEFAULT_BUCKET}', 'local/${TEMPLATE_BUCKET}', 'local/${DOCUMENTS_BUCKET}']
-    restart: 'on-failure'
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      DEFAULT_BUCKET: ${DEFAULT_BUCKET}
+      TEMPLATE_BUCKET: ${TEMPLATE_BUCKET}
+      DOCUMENTS_BUCKET: ${DOCUMENTS_BUCKET}
+    restart: 'no'
 
   keycloak:
     # Upstream image rather than openg2p/keycloak: it is multi-arch (so it runs
@@ -318,13 +295,7 @@ services:
         PIP_TRUSTED_HOST: ${PIP_TRUSTED_HOST:-}
     image: openg2p/openg2p-cropsown-registry-staff-api:${RP_VERSION}
     <<: *amd64
-    # Mount the partner signing key (git-ignored local/secrets/). Point
-    # CROPSOWN_CM_SIGNING_KEY_PATH at a file under /run/secrets/cropsown to use it.
-    volumes:
-      - ./local/secrets:/run/secrets/cropsown:ro
     environment:
-      # Farmer Registry enrichment + two-CR settings (web/staff path).
-      <<: *cropsown-enrichment-env
       # 1 worker rather than the chart's 3 — this is a laptop, and every worker
       # is emulated.
       STAFF_PORTAL_NO_OF_WORKERS: '1'
@@ -463,14 +434,7 @@ services:
         PIP_TRUSTED_HOST: ${PIP_TRUSTED_HOST:-}
     image: openg2p/openg2p-cropsown-registry-celery:${RP_VERSION}
     <<: *amd64
-    # Partner signing key (git-ignored local/secrets/); set
-    # CROPSOWN_CM_SIGNING_KEY_PATH to a file under /run/secrets/cropsown to use it.
-    volumes:
-      - ./local/secrets:/run/secrets/cropsown:ro
     environment:
-      # Farmer Registry enrichment + two-CR (ingestion path) and the ODK
-      # service-token settings used to raise the Farmer CR headlessly.
-      <<: [*cropsown-enrichment-env, *cropsown-odk-env]
       REGISTRY_CELERY_WORKERS_DB_HOSTNAME: postgres
       REGISTRY_CELERY_WORKERS_DB_PORT: 5432
       REGISTRY_CELERY_WORKERS_DB_DBNAME: ${REGISTRY_DB}
@@ -521,6 +485,7 @@ services:
     volumes:
       - ./cropsown-extension/src/openg2p_registry_cropsown_extension:/usr/local/lib/python3.12/site-packages/openg2p_registry_cropsown_extension
       - ./docker/celery/patches/intake_form_register_ingest_worker.py:/usr/local/lib/python3.12/site-packages/openg2p_registry_celery_worker/tasks/intake_form_register_ingest_worker.py
+      - ./docker/celery/patches/import_file_process_worker.py:/usr/local/lib/python3.12/site-packages/openg2p_registry_celery_worker/tasks/import_file_process_worker.py
     depends_on:
       staff-api:
         condition: service_healthy
@@ -631,6 +596,10 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
       AWE_DB_SEED_ENABLED: ${AWE_ENABLED}
+    volumes:
+      - ./cropsown-extension/src/openg2p_registry_cropsown_extension/meta_data:/seed/meta_data:ro
+      - ./cropsown-extension/src/openg2p_registry_cropsown_extension/awe_meta_data:/seed/awe_meta_data:ro
+      - ./cropsown-extension/src/openg2p_registry_cropsown_extension/templates:/seed/templates:ro
     depends_on:
       staff-api:
         condition: service_healthy
@@ -710,27 +679,32 @@ services:
     # object by bare filename in the documents bucket, so the files are copied in
     # flat, under exactly those names — otherwise the profile widget on the crop
     # sown record resolves record_image_document_id to a missing object.
-    #
-    # Gated behind the "sample-data" compose profile so it does NOT run by default
-    # (i.e. not when sample data is disabled). The chainguard mc client is
-    # distroless (no shell), so an env-var `if` guard is not possible — the
-    # profile is the image-supported way to make it conditional. Load demo photos
-    # together with the demo rows:
-    #   docker compose --profile sample-data up -d sample-images
-    profiles: ["sample-data"]
-    image: chainguard/minio-client:latest
+    image: minio/mc:latest
     depends_on:
       minio-init:
         condition: service_completed_successfully
-    # Distroless mc: the alias comes from MC_HOST_local and the flat upload is a
-    # single recursive `mc cp`.
     environment:
-      MC_HOST_local: http://${MINIO_ROOT_USER}:${MINIO_ROOT_PASSWORD}@minio:9000
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      DOCUMENTS_BUCKET: ${DOCUMENTS_BUCKET}
+      LOAD_CROPSOWN_SAMPLE_DATA: ${LOAD_CROPSOWN_SAMPLE_DATA}
     volumes:
       - ./docker/db-seed/sample-data/images:/images:ro
-    entrypoint: ['/usr/bin/mc']
-    command: ['cp', '--recursive', '/images/', 'local/${DOCUMENTS_BUCKET}/']
-    restart: 'on-failure'
+    entrypoint:
+      - sh
+      - -c
+      - |
+        set -e
+        if [ "$$LOAD_CROPSOWN_SAMPLE_DATA" != "true" ]; then
+          echo "LOAD_CROPSOWN_SAMPLE_DATA is not true - skipping demo record photos."
+          exit 0
+        fi
+        mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"
+        for f in /images/*; do
+          mc cp "$$f" "local/$$DOCUMENTS_BUCKET/$$(basename "$$f")"
+        done
+        echo "demo record photos uploaded"
+    restart: 'no'
 
   iam-register:
     image: curlimages/curl:8.11.1
