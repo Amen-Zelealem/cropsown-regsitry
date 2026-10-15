@@ -14,6 +14,32 @@ from contextvars import ContextVar
 _logger = logging.getLogger("openg2p.odk_ingest_hooks")
 _active_session: ContextVar = ContextVar("odk_active_session", default=None)
 
+# The docker-compose names are only the fallback: a cluster sets the AWE settings
+# per service (REGISTRY_STAFF_PORTAL_API_AWE_*, REGISTRY_CELERY_WORKERS_AWE_*), and
+# overriding them with http://awe:8000 broke every finalize on dev with
+# "Name does not resolve".
+_AWE_ENV_PREFIXES = (
+    "REGISTRY_CORE_",
+    "REGISTRY_CELERY_WORKERS_",
+    "REGISTRY_STAFF_PORTAL_API_",
+    "REGISTRY_PARTNER_API_",
+)
+_AWE_DEFAULTS = {
+    "AWE_BASE_URL": "http://awe:8000",
+    "AWE_DEFAULT_CALLBACK_URL": "http://staff-api:8000/awe/webhooks/decision",
+    "AWE_CALLBACK_SECRET_ID": "00000000-0000-4000-8000-000000000001",
+    "AWE_CALLBACK_HMAC_SECRET": "dev-registry-awe-callback-secret",
+}
+
+
+def _awe_setting(name: str) -> str:
+    """An AWE setting from the first service prefix that sets it, else the compose default."""
+    for prefix in _AWE_ENV_PREFIXES:
+        value = os.environ.get(prefix + name, "").strip()
+        if value:
+            return value
+    return _AWE_DEFAULTS[name]
+
 
 def _get_registry_engine():
     """Construct an AsyncEngine connected to the primary registry database."""
@@ -695,13 +721,13 @@ def _patch_celery_worker():
                 from openg2p_registry_core.helpers import AweHelper
                 core_cfg = CoreSettings.get_config(strict=False)
                 core_cfg.awe_enabled = True
-                core_cfg.awe_base_url = "http://awe:8000"
-                core_cfg.awe_default_callback_url = "http://staff-api:8000/awe/webhooks/decision"
-                core_cfg.awe_callback_secret_id = "00000000-0000-4000-8000-000000000001"
-                core_cfg.awe_callback_hmac_secret = "dev-registry-awe-callback-secret"
+                core_cfg.awe_base_url = _awe_setting("AWE_BASE_URL")
+                core_cfg.awe_default_callback_url = _awe_setting("AWE_DEFAULT_CALLBACK_URL")
+                core_cfg.awe_callback_secret_id = _awe_setting("AWE_CALLBACK_SECRET_ID")
+                core_cfg.awe_callback_hmac_secret = _awe_setting("AWE_CALLBACK_HMAC_SECRET")
                 awe_h = AweHelper.get_component()
                 if awe_h:
-                    awe_h._base_url = "http://awe:8000"
+                    awe_h._base_url = core_cfg.awe_base_url
             except Exception as e:
                 _logger.debug("Could not patch core settings AWE config: %s", e)
     except Exception as e:
@@ -789,7 +815,7 @@ def _patch_intake_form_data_service():
                     from openg2p_registry_core.helpers import AweHelper
                     awe_h = AweHelper.get_component()
                     if awe_h:
-                        awe_h._base_url = "http://awe:8000"
+                        awe_h._base_url = _awe_setting("AWE_BASE_URL")
                 except Exception:
                     pass
                 return await orig_finalize_submission(

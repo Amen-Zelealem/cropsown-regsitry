@@ -35,8 +35,12 @@
 #                    (empty disables the check)
 #   HELM_CHART_DIR   default helm/openg2p-cropsown-registry
 #   BASE_DOMAIN      default <namespace>.openg2p.test (as a helm template) — the
-#                    other hosts (keycloak, minio, idgenerator, awe, dashboard-api);
-#                    not the portal/API public hosts below
+#                    other hosts (idgenerator, awe, dashboard-api); not the
+#                    portal/API public hosts, Keycloak or MinIO below
+#   KEYCLOAK_URL     default https://keycloak-development.oanstaging.com — the
+#                    Keycloak the APIs call (staff API's AWE token, approvers)
+#   MINIO_HOST       default minio-api.commons-dev.oanstaging.com — the shared
+#                    MinIO (templates bucket, documents, browser pre-signed URLs)
 #   REGISTRY_HOST    default crop-registry-development.oanstaging.com (staff UI)
 #   STAFF_API_HOST   default staff-crop-development.oanstaging.com
 #   PARTNER_API_HOST default partner-crop-development.oanstaging.com
@@ -78,6 +82,12 @@ STAFF_API_HOST="${STAFF_API_HOST:-staff-crop-development.oanstaging.com}"
 PARTNER_API_HOST="${PARTNER_API_HOST:-partner-crop-development.oanstaging.com}"
 STAFF_IAM_URL="${STAFF_IAM_URL:-https://staff-iam-development.oanstaging.com}"
 COOKIE_DOMAIN="${COOKIE_DOMAIN:-.oanstaging.com}"
+# Keycloak and MinIO are commons' public names. The <namespace>.openg2p.test ones
+# resolve nowhere in the cluster: finalize failed on keycloak.crop.openg2p.test
+# ("Name does not resolve") and ingestion could not load its templates from
+# minio-api.crop.openg2p.test.
+KEYCLOAK_URL="${KEYCLOAK_URL:-https://keycloak-development.oanstaging.com}"
+MINIO_HOST="${MINIO_HOST:-minio-api.commons-dev.oanstaging.com}"
 RUN_DB_SEED="${RUN_DB_SEED:-true}"
 RUN_SANITY="${RUN_SANITY:-false}"
 # iam-register takes its token from the PUBLIC Keycloak URL
@@ -199,8 +209,6 @@ VALUE_FILES=()
 if [ -n "$BASE_DOMAIN" ]; then
   cat > "$WORK/ci-hosts.yaml" <<EOF
 global:
-  keycloakBaseUrl: 'https://keycloak.${BASE_DOMAIN}'
-  minioHost: 'minio-api.${BASE_DOMAIN}'
   idGeneratorHostname: 'idgenerator-{{ .Release.Name }}.${BASE_DOMAIN}'
   aweHostname: 'awe.${BASE_DOMAIN}'
 EOF
@@ -218,6 +226,8 @@ fi
 cat > "$WORK/ci-public.yaml" <<EOF
 global:
   registryHostname: '${REGISTRY_HOST}'
+  keycloakBaseUrl: '${KEYCLOAK_URL}'
+  minioHost: '${MINIO_HOST}'
 registry:
   staffApi:
     hostname: '${STAFF_API_HOST}'
@@ -225,6 +235,30 @@ registry:
   partnerApi:
     hostname: '${PARTNER_API_HOST}'
     istio: {virtualservice: {host: '${PARTNER_API_HOST}'}}
+    # The cropsown extension rebuilds the DB settings from COMMON_DB_* (or the
+    # staff API's) and otherwise falls back to host "postgres", so without these
+    # every /partner/ingest_data failed with "Name does not resolve". Staff API
+    # and celery already carry the same block on the release.
+    envVars:
+      COMMON_DB_HOSTNAME: commons-postgresql.commons.svc.cluster.local
+      COMMON_DB_PORT: '5432'
+      COMMON_DB_DBNAME: cropsown_registry
+      COMMON_DB_USERNAME: cropsown_registry_user
+    envVarsFrom:
+      COMMON_DB_PASSWORD:
+        secretKeyRef: {name: cropsown-registry, key: cropsown-registry-db-user}
+  celeryWorker:
+    # The worker finalizes ODK-ingested submissions and starts their AWE workflow,
+    # but carried no AWE settings (only the staff API did), so the extension fell
+    # back to the docker-compose http://awe:8000. Same values as the staff API's.
+    envVars:
+      REGISTRY_CELERY_WORKERS_AWE_ENABLED: 'true'
+      REGISTRY_CELERY_WORKERS_AWE_BASE_URL: http://commons-services-awe.commons.svc.cluster.local
+      REGISTRY_CELERY_WORKERS_AWE_DEFAULT_CALLBACK_URL: http://${HELM_RELEASE}-staff-portal-api.${HELM_NAMESPACE}.svc.cluster.local/awe/webhooks/decision
+      REGISTRY_CELERY_WORKERS_AWE_CALLBACK_SECRET_ID: ${HELM_RELEASE}
+    envVarsFrom:
+      REGISTRY_CELERY_WORKERS_AWE_CALLBACK_HMAC_SECRET:
+        secretKeyRef: {name: ${HELM_RELEASE}-awe-callback-hmac, key: hmac-secret}
   staffUi:
     iamPublicUrl: '${STAFF_IAM_URL}'
     partnerIngestUrl: 'https://${PARTNER_API_HOST}/partner/ingest_data?data_model=dcivc'
@@ -233,7 +267,7 @@ registry:
       COOKIE_DOMAIN: '${COOKIE_DOMAIN}'
 EOF
 VALUE_FILES+=(-f "$WORK/ci-public.yaml")
-echo "public hosts: ui=${REGISTRY_HOST} staff-api=${STAFF_API_HOST} partner-api=${PARTNER_API_HOST}  iam=${STAFF_IAM_URL}  cookie=${COOKIE_DOMAIN}"
+echo "public hosts: ui=${REGISTRY_HOST} staff-api=${STAFF_API_HOST} partner-api=${PARTNER_API_HOST}  iam=${STAFF_IAM_URL}  cookie=${COOKIE_DOMAIN}  keycloak=${KEYCLOAK_URL}  minio=${MINIO_HOST}"
 # The pull secret goes on the namespace's `default` ServiceAccount, which every
 # pod in this release uses, NOT through global.imagePullSecrets: with that value
 # set, the idgenerator subchart (0.0.0-develop.42) renders
