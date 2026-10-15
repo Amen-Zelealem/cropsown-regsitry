@@ -16,10 +16,16 @@
 # ── Globals (propagate to the openg2p-registry subchart) ──────────────────────
 global:
   registryVariant: 'cropsown-registry'
-  # Public hosts, on the environment's base domain <namespace>.openg2p.test
-  # (crop.openg2p.test). The subchart defaults them all to <namespace>.openg2p.org,
-  # a placeholder that resolves nowhere here, which broke Keycloak, MinIO and IAM.
-  registryHostname: '{{ .Release.Name }}.{{ .Release.Namespace }}.openg2p.test'
+  # The staff portal's public host, on oanstaging.com like farmer's
+  # (farmer-registry-development.oanstaging.com). The subchart derives the
+  # staff UI's VirtualService host, APP_URL/REDIRECT_URL, the Keycloak redirect
+  # URI and the VC did:web from it. The staff and partner API hosts are set
+  # explicitly under registry.staffApi / registry.partnerApi below, because the
+  # subchart's default (staff-/partner-<registryHostname>) is not their name.
+  registryHostname: 'crop-registry-development.oanstaging.com'
+  # Other hosts, on <namespace>.openg2p.test (crop.openg2p.test). The subchart
+  # defaults them to <namespace>.openg2p.org, a placeholder that resolves nowhere
+  # here, which broke Keycloak, MinIO and IAM.
   keycloakBaseUrl: 'https://keycloak.{{ .Release.Namespace }}.openg2p.test'
   minioHost: 'minio-api.{{ .Release.Namespace }}.openg2p.test'
   idGeneratorHostname: 'idgenerator-{{ .Release.Name }}.{{ .Release.Namespace }}.openg2p.test'
@@ -53,10 +59,20 @@ registry:
         secretKeyRef:
           name: '{{ tpl (default (printf "%s-staff-portal" .Release.Name) .Values.global.authClientSecret) $ }}'
           key: '{{ tpl (default "client_secret" .Values.global.authClientSecretKey) $ }}'
+    # Public API host, like farmer's staff-farmer-development.oanstaging.com.
+    hostname: 'staff-crop-development.oanstaging.com'
+    istio:
+      virtualservice:
+        host: 'staff-crop-development.oanstaging.com'
   partnerApi:
     image:
       repository: openg2p/openg2p-cropsown-registry-partner-api
       tag: 0.0.0-develop
+    # Like farmer's partner-farmer-development.oanstaging.com.
+    hostname: 'partner-crop-development.oanstaging.com'
+    istio:
+      virtualservice:
+        host: 'partner-crop-development.oanstaging.com'
   celeryWorker:
     image:
       repository: openg2p/openg2p-cropsown-registry-celery
@@ -123,16 +139,15 @@ registry:
             idLength: 5
 
   # staffUi's image is set by the pipeline (docker/staff-ui). Browsers reach it
-  # on the public oanstaging.com names, the same pattern farmer uses
-  # (farmer-registry-development / staff-iam-development), so its app URL, IAM
-  # URL and cookie domain are on .oanstaging.com. Only these browser-facing
-  # settings move: registryHostname and the other globals above stay on
-  # .openg2p.test for the internal gateway and in-cluster callers.
+  # on global.registryHostname (APP_URL follows it); its IAM URL and cookie
+  # domain are on .oanstaging.com too, the same pattern farmer uses
+  # (staff-iam-development). The partner ingest URL names the partner API host
+  # set above rather than the subchart's partner-<registryHostname>.
   # beneApi is consumed as-is from the openg2p-registry base image.
   staffUi:
     iamPublicUrl: 'https://staff-iam-development.oanstaging.com'
+    partnerIngestUrl: 'https://partner-crop-development.oanstaging.com/partner/ingest_data?data_model=dcivc'
     envVars:
-      APP_URL: 'https://crop-registry-development.oanstaging.com'
       COOKIE_DOMAIN: '.oanstaging.com'
 
   # ── Crop sown e2e sanity suite (image built here; Set 2 field tests) ────────
