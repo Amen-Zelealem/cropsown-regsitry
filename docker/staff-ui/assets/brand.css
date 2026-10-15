@@ -86,3 +86,10 @@ div[data-panel-id="vertical_panel_cs_cropsown_record_1"],
   flex: 0 0 220px !important;
 }
 
+/* Configuration left navigation sidebar green override */
+.bg-primary-first.rounded-r-\[10px\] {
+  background-color: #009147 !important;
+}
+
+
+

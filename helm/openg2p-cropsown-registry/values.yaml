@@ -24,6 +24,15 @@ global:
   minioHost: 'minio-api.{{ .Release.Namespace }}.openg2p.test'
   idGeneratorHostname: 'idgenerator-{{ .Release.Name }}.{{ .Release.Namespace }}.openg2p.test'
   aweHostname: 'awe.{{ .Release.Namespace }}.openg2p.test'
+  # AWE and the staff API talk to each other inside the cluster. The subchart
+  # defaults both to the public https hosts, which use the self-signed Local CA:
+  # AWE's webhook to the staff API failed with CERTIFICATE_VERIFY_FAILED, so
+  # approved intake forms never reached the registry (44 failed deliveries,
+  # 2026-10-07..09). aweDefaultCallbackUrl also becomes caller_service of this
+  # release's callback_secret row (awe_meta_data/40_callback_secret.sql.tpl
+  # upserts it on every db-seed). AWE runs in <aweReleaseName>, commons-services.
+  aweBaseUrl: 'http://{{ .Values.global.aweReleaseName }}-awe.{{ .Release.Namespace }}.svc.cluster.local'
+  aweDefaultCallbackUrl: 'http://{{ .Release.Name }}-staff-portal-api.{{ .Release.Namespace }}.svc.cluster.local/awe/webhooks/decision'
 
 # ── openg2p-registry subchart overrides ───────────────────────────────────────
 registry:
@@ -54,10 +63,18 @@ registry:
       tag: 0.0.0-develop
     envVars:
       REGISTRY_CELERY_WORKERS_MASTER_DATA_DB_HOSTNAME: "commons-postgresql"
+      # The subchart sets no --concurrency, so prefork starts one process per
+      # CPU (48 on the dev node), each loading the whole app: the worker sat at
+      # 3.5Gi of its 4Gi limit. 8 is a throughput choice with memory headroom.
+      CELERY_OPTS: "worker -Q registry_worker_queue --concurrency=8 --loglevel=info"
   celeryBeat:
     image:
       repository: openg2p/openg2p-cropsown-registry-celery
       tag: 0.0.0-develop
+    envVars:
+      # The beat producer only schedules and enqueues; with 48 processes it went
+      # over its 3Gi limit ~17s after start (OOMKilled, CrashLoopBackOff).
+      CELERY_OPTS: "worker --beat --concurrency=2 --loglevel=info --schedule=/tmp/celery-beat-schedule.db"
   dbSeed:
     image:
       repository: openg2p/openg2p-cropsown-registry-db-seed

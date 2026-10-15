@@ -43,6 +43,9 @@
 #   HELM_TIMEOUT     default 40m
 #   ROLLOUT_TIMEOUT  per-Deployment rollout wait, default 420s
 #   PULL_SECRET      ECR imagePullSecret to write/use, default cropsown-ecr
+#   OUTSIDE_CHART    true|false, default true   also move the Deployments helm does
+#                                               not manage (connector, public staff UI)
+#                                               to this build's images
 set -euo pipefail
 
 TAG="${1:-${TAG:-}}"
@@ -335,6 +338,34 @@ for D in $DEPLOYMENTS; do
     exit 1
   fi
 done
+
+# ── 6b. Deployments outside the chart ─────────────────────────────────────────
+# The connector (api, worker, beat, ui) and the public staff portal
+# (<release>-staff-portal-ui-pub) are not in this chart, so helm never moves
+# them: they stayed on develop-69 while the release went to develop-74. This
+# build pushes their images (connector-service, connector-ui, staff-ui), so point
+# them at the same tag. Only the image changes; a Deployment that does not exist
+# in this namespace is skipped.
+if [ "${OUTSIDE_CHART:-true}" = "true" ]; then
+  say "Deployments outside the chart"
+  for PAIR in "cropsown-connector-api:connector-service" "cropsown-connector-worker:connector-service" \
+              "cropsown-connector-beat:connector-service" "cropsown-connector-ui:connector-ui" \
+              "${HELM_RELEASE}-staff-portal-ui-pub:staff-ui"; do
+    D="${PAIR%%:*}"
+    IMG="${ECR}/${PAIR#*:}:${TAG}"
+    if ! kubectl get deploy "$D" "${NS[@]}" >/dev/null 2>&1; then
+      echo "${D}: not in ${HELM_NAMESPACE}, skipped"
+      continue
+    fi
+    C="$(kubectl get deploy "$D" "${NS[@]}" -o jsonpath='{.spec.template.spec.containers[0].name}')"
+    kubectl set image "deploy/${D}" "${C}=${IMG}" "${NS[@]}"
+    if ! kubectl rollout status "deploy/${D}" "${NS[@]}" --timeout="${ROLLOUT_TIMEOUT:-420s}"; then
+      echo "ERROR: ${D} did not roll out on ${IMG}. Undo: kubectl -n ${HELM_NAMESPACE} rollout undo deploy/${D}" >&2
+      kubectl logs "deploy/${D}" "${NS[@]}" --all-containers --prefix --tail=40 >&2 || true
+      exit 1
+    fi
+  done
+fi
 
 # ── 7. Schema drift gate ───────────────────────────────────────────────────────
 # The API pods run `migrate` on start, which now adds model columns an existing

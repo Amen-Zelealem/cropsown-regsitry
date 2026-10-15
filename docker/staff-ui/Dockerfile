@@ -17,7 +17,7 @@
 # fails the build if they drift.
 #
 # Build context = repo root.
-ARG RP_VERSION=0.0.0-develop.296
+ARG RP_VERSION=1.2.2-rc.544
 FROM openg2p/openg2p-registry-staff-ui:${RP_VERSION}
 
 # Browser-facing origin of the dashboard service. It is compiled into the client
@@ -73,6 +73,9 @@ RUN DASHBOARD_URL="${DASHBOARD_URL}" DASHBOARD_LABEL="${DASHBOARD_LABEL}" \
 # ── Replace broken avatar text with default silhouette placeholder ─────────
 COPY --chown=nextjs docker/staff-ui/assets/patch-avatar.js /tmp/patch-avatar.js
 RUN node /tmp/patch-avatar.js
+
+COPY --chown=nextjs docker/staff-ui/assets/patch-intake-form.js /tmp/patch-intake-form.js
+RUN node /tmp/patch-intake-form.js
 
 # ── Enable om (Afaan Oromoo) and ti (Tigrigna) locales ───────────────────────
 COPY --chown=nextjs docker/staff-ui/assets/patch-locales.js /tmp/patch-locales.js

@@ -367,30 +367,146 @@ async def resolve_geo_label(code: str | None, level_prefix: str = "") -> str | N
     return cleaned
 
 
+async def build_geo_hierarchy_from_db(val: str | None) -> dict | None:
+    """Build full geo hierarchy JSON and canonical level_value_id from master-data."""
+    if not val:
+        return None
+    val_str = str(val).strip()
+    if not val_str:
+        return None
+
+    clean_val = val_str
+    for pfx in ("KEBELE_", "WOREDA_", "ZONE_", "REGION_"):
+        if clean_val.startswith(pfx):
+            clean_val = clean_val[len(pfx):]
+            break
+
+    try:
+        engine = _get_master_data_engine()
+        from sqlalchemy.ext.asyncio import async_sessionmaker
+        from sqlalchemy import text
+
+        session_maker = async_sessionmaker(engine, expire_on_commit=False)
+        async with session_maker() as session:
+            candidates = [
+                val_str,
+                clean_val,
+                f"kebele-{clean_val}",
+                f"woreda-{clean_val}",
+                f"zone-{clean_val}",
+                f"region-{clean_val}",
+            ]
+            q = text(
+                "SELECT level_value_id FROM g2p_geo_level_values "
+                "WHERE level_value_id = :c1 OR level_value_id = :c2 OR level_value_id = :c3 "
+                "OR level_value_id = :c4 OR level_value_id = :c5 OR level_value_id = :c6 "
+                "OR level_value_id ILIKE :c_like LIMIT 1"
+            )
+            res = await session.execute(
+                q,
+                {
+                    "c1": candidates[0],
+                    "c2": candidates[1],
+                    "c3": candidates[2],
+                    "c4": candidates[3],
+                    "c5": candidates[4],
+                    "c6": candidates[5],
+                    "c_like": f"%{clean_val}",
+                },
+            )
+            row = res.fetchone()
+            if not row:
+                return None
+            lowest_id = row[0]
+
+            hierarchy = []
+            curr = lowest_id
+            while curr:
+                r = await session.execute(
+                    text(
+                        "SELECT lv.level_value_id, lv.level_value_mnemonic, lv.parent_level_value_id, l.level_mnemonic "
+                        "FROM g2p_geo_level_values lv "
+                        "JOIN g2p_geo_levels l ON lv.level_id = l.level_id "
+                        "WHERE lv.level_value_id = :val_id"
+                    ),
+                    {"val_id": curr},
+                )
+                node = r.fetchone()
+                if not node:
+                    break
+                hierarchy.append(
+                    {
+                        "level": node.level_mnemonic,
+                        "level_mnemonic": node.level_mnemonic,
+                        "level_value_id": node.level_value_id,
+                        "level_value_mnemonic": node.level_value_mnemonic,
+                    }
+                )
+                curr = node.parent_level_value_id
+            hierarchy.reverse()
+            return {"hierarchy": hierarchy, "lowest_level_value_id": lowest_id}
+    except Exception as e:
+        _logger.debug("ODK Hook: build_geo_hierarchy_from_db error: %s", e)
+        return None
+
+
 def _alias_extension_modules():
-    """Ensure openg2p_registry_extensions and all its subpackages alias to cropsown extension."""
+    """Make ``openg2p_registry_extensions`` and the real extension name resolve to
+    the SAME module objects — top-level and every submodule, models included.
+
+    Runs unconditionally (not only when the top-level alias is missing): if the
+    alias exists but a model submodule was imported under only one of the two
+    names, its register tables get defined twice and SQLAlchemy/metadata breaks.
+    By importing each submodule once and pointing both names at that object, and
+    by mirroring any already-loaded submodule, models load exactly once."""
     ext = os.environ.get("REGISTRY_EXTENSION_MODULE", "openg2p_registry_cropsown_extension")
-    if "openg2p_registry_extensions" not in sys.modules:
+    alias = "openg2p_registry_extensions"
+
+    def _dual(subpath):
+        # Reuse a module already loaded under EITHER name; import once only when
+        # neither is present. Then point BOTH names at that one object, so a later
+        # import under the other name resolves the SAME module and never re-runs a
+        # model definition (which would raise "Table ... is already defined").
+        full_ext = f"{ext}.{subpath}" if subpath else ext
+        full_alias = f"{alias}.{subpath}" if subpath else alias
+        module = sys.modules.get(full_ext) or sys.modules.get(full_alias)
+        if module is None:
+            module = importlib.import_module(full_ext)
+        sys.modules[full_ext] = module
+        sys.modules[full_alias] = module
+        return module
+
+    # Top-level import failure is fatal and must surface (not be swallowed).
+    _dual("")
+    for sub in (
+        "config",
+        "ingestion_pipeline",
+        "ingestion_pipeline.enricher_services",
+        "register_domain",
+        "register_domain.models",
+        "register_domain.models.farmer",
+        "register_domain.schemas",
+        "register_domain.services",
+        "register_domain.controllers",
+        "register_domain.factory",
+    ):
         try:
-            sys.modules["openg2p_registry_extensions"] = sys.modules.get(ext) or importlib.import_module(ext)
-            for sub in (
-                "config",
-                "ingestion_pipeline",
-                "ingestion_pipeline.enricher_services",
-                "register_domain",
-                "register_domain.models",
-                "register_domain.schemas",
-                "register_domain.services",
-                "register_domain.controllers",
-                "register_domain.factory",
-            ):
-                try:
-                    sys.modules[f"openg2p_registry_extensions.{sub}"] = importlib.import_module(f"{ext}.{sub}")
-                except Exception:
-                    pass
-            _logger.info("ODK Hook: Aliased openg2p_registry_extensions -> %s", ext)
-        except Exception as e:
-            _logger.debug("ODK Hook: Error aliasing extension modules: %s", e)
+            _dual(sub)
+        except ModuleNotFoundError:
+            # An optional submodule that does not exist is fine; anything else is
+            # logged visibly (at WARNING, not swallowed) since it is the cause of
+            # the double-definition crash downstream.
+            pass
+        except Exception as exc:
+            _logger.warning("ODK Hook: could not alias submodule %s: %s", sub, exc)
+    # Mirror any other already-loaded submodule BOTH ways so neither name resolves
+    # to a second, separately-imported copy.
+    for name, module in list(sys.modules.items()):
+        if name.startswith(ext + "."):
+            sys.modules[alias + name[len(ext):]] = module
+        elif name.startswith(alias + "."):
+            sys.modules[ext + name[len(alias):]] = module
+    _logger.info("ODK Hook: aliased %s <-> %s (model submodules reused, not re-imported)", ext, alias)
 
 
 def _patch_request_response_helper():
@@ -463,7 +579,8 @@ def _patch_celery_worker():
                                     res = await session.execute(
                                         text("""
                                             SELECT farmer_name, farmer_id, region, zone, woreda, kebele,
-                                                   address_line_1, address_line_2, latitude, longitude, gps_coordinate
+                                                   address_line_1, address_line_2, latitude, longitude,
+                                                   latitude || ', ' || longitude as gps_coordinate
                                             FROM g2p_intake_form_crop_sowns
                                             WHERE fayda_fan_id = :fayda AND farmer_name IS NOT NULL AND farmer_name != ''
                                             ORDER BY created_at DESC LIMIT 1
@@ -547,13 +664,33 @@ def _patch_celery_worker():
                                         except Exception:
                                             pass
 
-                        # Ensure cs_cropsown_location has gps_coordinate
+                        # Ensure cs_cropsown_location has gps_coordinate and geo_code_hierarchy_json
                         loc_rows = transformed_data.get("cs_cropsown_location") or []
                         for lr in loc_rows:
                             lat = lr.get("latitude")
                             lon = lr.get("longitude")
                             if lat and lon and not lr.get("gps_coordinate"):
                                 lr["gps_coordinate"] = f"{lat}, {lon}"
+
+                        # Enrich geo_code_hierarchy_json and canonical geo_lowest_level_value_id
+                        for sec_key in ("cs_intake_record", "cs_common_intake_record", "cs_cropsown_location"):
+                            for r in (transformed_data.get(sec_key) or []):
+                                lowest_val = r.get("geo_lowest_level_value_id") or r.get("kebele") or r.get("woreda")
+                                if lowest_val and not r.get("geo_code_hierarchy_json"):
+                                    geo_res = await build_geo_hierarchy_from_db(lowest_val)
+                                    if geo_res:
+                                        r["geo_code_hierarchy_json"] = geo_res
+                                        r["geo_lowest_level_value_id"] = geo_res["lowest_level_value_id"]
+                                        # Also ensure region, zone, woreda, kebele codes match canonical attribute values
+                                        for h in geo_res.get("hierarchy", []):
+                                            lvl = h.get("level")
+                                            val_id = h.get("level_value_id")
+                                            val_mnemonic = h.get("level_value_mnemonic")
+                                            if lvl in ("region", "zone", "woreda", "kebele") and val_id:
+                                                code = str(val_id).upper().replace("-", "_")
+                                                r[lvl] = code
+                                                if val_mnemonic:
+                                                    r[f"{lvl}_name"] = val_mnemonic
                     except Exception as e:
                         _logger.debug("Error in auto-enriching intake submission: %s", e)
 
@@ -569,8 +706,82 @@ def _patch_celery_worker():
 
             worker_mod._save_sections_async = patched_save_sections_async
             _logger.info("ODK Hook: Patched ingest_data_worker._save_sections_async")
+
+            orig_finalize_submission_async = getattr(worker_mod, "_finalize_submission_async", None)
+            if orig_finalize_submission_async and not hasattr(worker_mod, "_odk_patched_finalize"):
+                worker_mod._odk_patched_finalize = True
+
+                async def patched_finalize_submission_async(submission_id: str, session) -> None:
+                    token = await _get_awe_service_token()
+                    from openg2p_registry_core.services.intake_form_data_service import G2PIntakeFormDataService
+                    await G2PIntakeFormDataService.get_component().finalize_submission_with_session(
+                        submission_id,
+                        session,
+                        bearer_token=token,
+                    )
+
+                worker_mod._finalize_submission_async = patched_finalize_submission_async
+                _logger.info("ODK Hook: Patched ingest_data_worker._finalize_submission_async with AWE service token")
+
+            try:
+                from openg2p_registry_core.config import Settings as CoreSettings
+                from openg2p_registry_core.helpers import AweHelper
+                core_cfg = CoreSettings.get_config(strict=False)
+                core_cfg.awe_enabled = True
+                core_cfg.awe_base_url = "http://awe:8000"
+                core_cfg.awe_default_callback_url = "http://staff-api:8000/awe/webhooks/decision"
+                core_cfg.awe_callback_secret_id = "00000000-0000-4000-8000-000000000001"
+                core_cfg.awe_callback_hmac_secret = "dev-registry-awe-callback-secret"
+                awe_h = AweHelper.get_component()
+                if awe_h:
+                    awe_h._base_url = "http://awe:8000"
+            except Exception as e:
+                _logger.debug("Could not patch core settings AWE config: %s", e)
     except Exception as e:
         _logger.debug("Could not patch ingest_data_worker: %s", e)
+
+
+_cached_awe_token = None
+_cached_awe_token_expiry = 0
+
+
+async def _get_awe_service_token() -> str | None:
+    """Acquire and cache a Keycloak client-credentials token for background AWE calls."""
+    global _cached_awe_token, _cached_awe_token_expiry
+    import time
+    import urllib.request
+    import urllib.parse
+    import json
+
+    now = time.time()
+    if _cached_awe_token and now < _cached_awe_token_expiry - 60:
+        return _cached_awe_token
+    try:
+        keycloak_url = (
+            os.environ.get("KEYCLOAK_BASE_URL")
+            or os.environ.get("KEYCLOAK_URL")
+            or "http://keycloak:8080"
+        ).rstrip("/")
+        realm = os.environ.get("KEYCLOAK_REALM", "staff")
+        client_id = os.environ.get("AUTH_CLIENT_ID", "cropsown-staff-portal")
+        client_secret = os.environ.get("AUTH_CLIENT_SECRET", "cropsown-staff-portal-secret")
+
+        token_url = f"{keycloak_url}/realms/{realm}/protocol/openid-connect/token"
+        data = urllib.parse.urlencode({
+            "grant_type": "client_credentials",
+            "client_id": client_id,
+            "client_secret": client_secret,
+        }).encode("utf-8")
+        req = urllib.request.Request(token_url, data=data)
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            body = json.loads(resp.read().decode("utf-8"))
+            _cached_awe_token = body.get("access_token")
+            expires_in = body.get("expires_in", 300)
+            _cached_awe_token_expiry = now + expires_in
+            return _cached_awe_token
+    except Exception as exc:
+        _logger.warning("Could not obtain AWE service token from Keycloak: %s", exc)
+        return None
 
 
 def _connect_celery_signals():
@@ -592,6 +803,39 @@ def _patch_intake_form_data_service():
         from openg2p_registry_core.services.intake_form_data_service import G2PIntakeFormDataService
         from sqlalchemy import select, text
         from decimal import Decimal
+
+        if not hasattr(G2PIntakeFormDataService, "_odk_patched_finalize_submission_with_session"):
+            G2PIntakeFormDataService._odk_patched_finalize_submission_with_session = True
+            orig_finalize_submission = G2PIntakeFormDataService.finalize_submission_with_session
+
+            async def patched_finalize_submission_with_session(
+                self,
+                submission_id: str,
+                session,
+                finalized_by: str | None = None,
+                bearer_token: str | None = None,
+                requester_sub: str | None = None,
+            ):
+                if not bearer_token:
+                    bearer_token = await _get_awe_service_token()
+                try:
+                    from openg2p_registry_core.helpers import AweHelper
+                    awe_h = AweHelper.get_component()
+                    if awe_h:
+                        awe_h._base_url = "http://awe:8000"
+                except Exception:
+                    pass
+                return await orig_finalize_submission(
+                    self,
+                    submission_id,
+                    session,
+                    finalized_by=finalized_by,
+                    bearer_token=bearer_token,
+                    requester_sub=requester_sub,
+                )
+
+            G2PIntakeFormDataService.finalize_submission_with_session = patched_finalize_submission_with_session
+            _logger.info("ODK Hook: Patched G2PIntakeFormDataService.finalize_submission_with_session with AWE service token")
 
         if not hasattr(G2PIntakeFormDataService, "_odk_patched_serialize_model"):
             G2PIntakeFormDataService._odk_patched_serialize_model = True
@@ -1241,6 +1485,121 @@ def _patch_harvest_service():
         _logger.debug("Could not patch G2PRegisterDomainServiceHarvest: %s", e)
 
 
+# ── Crop-Sown -> Farmer two-CR + ODK auth glue (env-driven, secret-free) ────
+# The two-CR logic lives in register_domain/services/farmer_register_crossref.
+# Here we (1) attach it to the intake service (the staff finalize path) and
+# (2) add the ODK/celery parity: a post-commit wrapper that mints a service
+# token, ensures the intake-submission AWE task, and raises the Farmer CR.
+# Every credential/URL comes ONLY from env — nothing is hard-coded.
+
+
+def _two_cr_enabled() -> bool:
+    return (os.environ.get("CROPSOWN_TWO_CR_ENABLED") or "false").strip().lower() in {"true", "1", "yes"}
+
+
+def _install_two_cr_hooks():
+    """Attach the Crop-Sown -> Farmer two-change-request hooks to the intake service."""
+    try:
+        if not _two_cr_enabled():
+            return
+        from openg2p_registry_core.services.intake_form_data_service import G2PIntakeFormDataService
+        from openg2p_registry_cropsown_extension.register_domain.services.farmer_register_crossref import install
+        install(G2PIntakeFormDataService)
+        _logger.info("ODK Hook: installed Crop-Sown two-CR hooks")
+    except Exception as e:
+        _logger.debug("Could not install two-CR hooks: %s", e)
+
+
+def _odk_mint_service_token():
+    """A bearer token for headless (ODK) finalize via Keycloak password grant.
+    All credentials come from env; returns None when not fully configured."""
+    url = (os.environ.get("CROPSOWN_ODK_KEYCLOAK_URL") or "").strip().rstrip("/")
+    realm = (os.environ.get("CROPSOWN_ODK_KEYCLOAK_REALM") or "").strip()
+    client_id = (os.environ.get("CROPSOWN_ODK_SERVICE_CLIENT_ID") or "").strip()
+    client_secret = (os.environ.get("CROPSOWN_ODK_SERVICE_CLIENT_SECRET") or "").strip()
+    username = (os.environ.get("CROPSOWN_ODK_SERVICE_USERNAME") or "").strip()
+    password = os.environ.get("CROPSOWN_ODK_SERVICE_PASSWORD") or ""
+    if not (url and realm and client_id and username and password):
+        _logger.warning("ODK Hook: service token not configured (set CROPSOWN_ODK_* env) — ODK two-CR skipped")
+        return None
+    try:
+        import httpx
+        data = {"client_id": client_id, "username": username, "password": password,
+                "grant_type": "password", "scope": "openid"}
+        if client_secret:
+            data["client_secret"] = client_secret
+        resp = httpx.post(f"{url}/realms/{realm}/protocol/openid-connect/token", data=data, timeout=15)
+        return (resp.json() or {}).get("access_token")
+    except Exception as e:
+        _logger.warning("ODK Hook: service token mint failed: %s", e)
+        return None
+
+
+async def _odk_post_ingest(worker_mod, ingest_id):
+    """Post-commit: ensure the intake-submission AWE task exists and raise the Farmer CR.
+
+    Runs AFTER the ingest transaction commits — the ODK ingest writes and
+    finalizes the submission in one transaction, so a fresh session cannot see
+    the crop-sown rows until then (the staff path does not hit this because the
+    submission is already persisted before finalize)."""
+    from openg2p_registry_core.models import G2PIntakeFormSubmission
+    from openg2p_registry_core.services.g2p_awe_integration_service import G2PAweIntegrationService
+    from openg2p_registry_cropsown_extension.register_domain.services.farmer_register_crossref import (
+        raise_farmer_change_request,
+    )
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    session_maker = async_sessionmaker(bind=worker_mod._async_engine, expire_on_commit=False)
+    async with session_maker() as session:
+        classified = await session.get(worker_mod.IncomingClassifiedData, ingest_id)
+        submission_id = getattr(classified, "intake_form_submission_id", None) if classified else None
+    if not submission_id:
+        return
+    token = _odk_mint_service_token()
+    if not token:
+        return
+    requester = (os.environ.get("CROPSOWN_ODK_REQUESTER_SUB") or "odk-ingest").strip()
+    try:
+        async with session_maker() as session:
+            submission = await session.get(G2PIntakeFormSubmission, submission_id)
+            if submission is not None and not getattr(submission, "awe_request_id", None):
+                await G2PAweIntegrationService.get_component().start_intake_submission_workflow(
+                    session, submission, bearer_token=token, requester=submission.created_by)
+                await session.commit()
+                _logger.info("ODK Hook: created intake AWE task for submission %s", submission_id)
+    except Exception as e:
+        _logger.exception("ODK Hook: intake AWE creation failed: %s", e)
+    try:
+        await raise_farmer_change_request(submission_id, token, requester)
+    except Exception as e:
+        _logger.exception("ODK Hook: Farmer-CR raise failed: %s", e)
+
+
+def _patch_odk_post_ingest():
+    """Wrap celery ``_process_ingestion_async`` so an ODK ingest gets the same
+    intake AWE task + Farmer CR as the staff finalize, once it has committed."""
+    try:
+        if not _two_cr_enabled():
+            return
+        worker_mod = importlib.import_module("openg2p_registry_celery_worker.tasks.ingest_data_worker")
+        if getattr(worker_mod, "_cropsown_odk_post_installed", False):
+            return
+        orig_process = worker_mod._process_ingestion_async
+
+        async def process_with_two_cr(ingest_id):
+            await orig_process(ingest_id)
+            try:
+                await _odk_post_ingest(worker_mod, ingest_id)
+            except Exception as e:
+                _logger.exception("ODK Hook: post-ingest wrapper error: %s", e)
+
+        worker_mod._process_ingestion_async = process_with_two_cr
+        worker_mod._cropsown_odk_post_installed = True
+        _logger.info("ODK Hook: installed post-ingest AWE + Farmer-CR wrapper")
+    except Exception as e:
+        _logger.debug("Could not patch ODK post-ingest: %s", e)
+
+
 def install_hooks():
     """Run hook initialization."""
     _alias_extension_modules()
@@ -1257,6 +1616,8 @@ def install_hooks():
     _patch_cultivation_service()
     _patch_sowing_service()
     _patch_harvest_service()
+    _install_two_cr_hooks()
+    _patch_odk_post_ingest()
 
 
 install_hooks()

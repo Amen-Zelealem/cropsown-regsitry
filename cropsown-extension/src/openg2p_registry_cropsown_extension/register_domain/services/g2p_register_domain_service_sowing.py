@@ -24,6 +24,8 @@ class G2PRegisterDomainServiceSowing(G2PRegisterDomainService):
                 validation_error("Land ID is required in Sowing Details.")
             from .domain_validation_utils import resolve_production_season
             prod_season = await resolve_production_season(record, session)
+            if prod_season and not record.get("production_season"):
+                record["production_season"] = prod_season
 
             season = record.get("season") or record.get("cluster_season")
             if prod_season and season:
@@ -45,6 +47,37 @@ class G2PRegisterDomainServiceSowing(G2PRegisterDomainService):
                 await self._validate_sowing_after_cultivation(record, session=session)
                 await self._validate_sowing_area_after_cultivation(record, session=session)
                 await self._validate_date_in_season_enhanced(record, "sowing_date", session=session)
+        self._validate_no_duplicate_commodity_season(active_records)
+
+    def _validate_no_duplicate_commodity_season(self, records: list[dict]) -> None:
+        seen: set[tuple[str, str, str]] = set()
+        for record in records:
+            commodity = str(
+                record.get("commodity")
+                or record.get("cluster_name")
+                or record.get("cluster_id")
+                or ""
+            ).strip()
+            season = str(
+                record.get("season")
+                or record.get("cluster_season")
+                or record.get("production_season")
+                or ""
+            ).strip()
+            land_id = str(record.get("land_id") or "").strip()
+            if not commodity and not land_id:
+                continue
+            key = (commodity, season, land_id)
+            if key in seen:
+                if record.get("commodity"):
+                    validation_error(
+                        "Duplicate commodity entries for the same season and land are not allowed"
+                    )
+                else:
+                    validation_error(
+                        "Duplicate sowing entries for the same season and land are not allowed"
+                    )
+            seen.add(key)
 
     async def _validate_existing_crop_sown_record_required(self, record: dict, session) -> None:
         fayda_fan_id = record.get("fayda_fan_id") or record.get("fayda_id")
@@ -275,7 +308,14 @@ class G2PRegisterDomainServiceSowing(G2PRegisterDomainService):
             cluster_status = " ".join(str(item) for item in raw_cs if item).upper()
         else:
             cluster_status = str(raw_cs or "").upper()
-        is_clustered = "CLUSTER" in cluster_status
+        if "INDEPENDENT" in cluster_status or "NON_CLUSTER" in cluster_status or "NON-CLUSTER" in cluster_status:
+            is_clustered = False
+        elif "CLUSTERED" in cluster_status or cluster_status == "CLUSTER" or "CLUSTER_STATUS_CLUSTERED" in cluster_status:
+            is_clustered = True
+        elif "CLUSTER" in cluster_status:
+            is_clustered = True
+        else:
+            is_clustered = bool(record.get("cluster_name") and not record.get("commodity"))
 
         prior_date = None
         prior_stage = None

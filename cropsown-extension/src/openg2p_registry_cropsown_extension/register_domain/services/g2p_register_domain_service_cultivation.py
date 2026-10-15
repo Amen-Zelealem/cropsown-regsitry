@@ -36,6 +36,8 @@ class G2PRegisterDomainServiceCultivation(G2PRegisterDomainService):
 
             from .domain_validation_utils import resolve_production_season
             prod_season = await resolve_production_season(record, session)
+            if prod_season and not record.get("production_season"):
+                record["production_season"] = prod_season
 
             season = record.get("season")
             if prod_season and season:
@@ -53,6 +55,22 @@ class G2PRegisterDomainServiceCultivation(G2PRegisterDomainService):
             if session:
                 await self._validate_date_after_planning(record, session)
             compute_ec_date(record, "actual_cultivation_date", "actual_cultivation_date_ec")
+        self._validate_no_duplicate_commodity_season(active_records)
+
+    def _validate_no_duplicate_commodity_season(self, records: list[dict]) -> None:
+        seen: set[tuple[str, str, str]] = set()
+        for record in records:
+            commodity = str(record.get("commodity") or "").strip()
+            season = str(record.get("season") or record.get("production_season") or "").strip()
+            land_id = str(record.get("land_id") or "").strip()
+            if not commodity:
+                continue
+            key = (commodity, season, land_id)
+            if key in seen:
+                validation_error(
+                    "Duplicate commodity entries for the same season and land are not allowed"
+                )
+            seen.add(key)
 
     def _validate_actual_cultivation_date(self, record: dict) -> None:
         pass
