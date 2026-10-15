@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 /*
- * Add a "Dashboard" control to the Staff Portal header, left of Configuration.
+ * Add a "Dashboard" control to the Staff Portal header, as the first of its
+ * right-hand controls (left of Configuration on bases that still have it there).
  *
- * The header lays its right-hand controls out as a fixed list:
+ * The header lays its right-hand controls out as a fixed list (develop.296 shape;
+ * see PATTERN for the 1.2.2-rc.544 one):
  *
  *     (0,r.jsxs)("div",{className:"flex items-center gap-8",children:[
  *         (0,r.jsx)(v.A,{anyOf:p.Ll,children:(0,r.jsx)(g.default,{})}),  // Configuration
@@ -43,9 +45,17 @@ if (!URL_TARGET) {
   process.exit(1);
 }
 
-// (0,<jsx>.jsxs)("div",{className:"flex items-center gap-8",children:[
+// (0,<jsx>.jsxs)("div",{className:"flex items-center gap-N",children:[
+//
+// The row's spacing and children differ between base images:
+//   0.0.0-develop.296  gap-8, Configuration (RBAC guard `X.A,{anyOf:`) first,
+//                      then three `X.default,{}` controls
+//   1.2.2-rc.544       gap-4, Configuration gone from the row, just three
+//                      `X.default,{}` controls (language, notifications, account)
+// "flex items-center gap-4" alone also opens unrelated rows (theme editor and
+// others), so the lookahead pins the match to the header's own children.
 const PATTERN =
-  /(\(0,(\w+)\.jsxs\)\("div",\{className:"flex items-center gap-8",children:\[)/g;
+  /(\(0,(\w+)\.jsxs\)\("div",\{className:"flex items-center gap-[48]",children:\[)(?=\(0,\w+\.jsx\)\(\w+\.(?:A,\{anyOf:|default,\{\}\),\(0,\w+\.jsx\)\(\w+\.default,\{\}\),\(0,\w+\.jsx\)\(\w+\.default,\{\}\)))/g;
 
 // Matches the sibling Configuration control, so the two read as a pair.
 const BUTTON_CLASS = "flex items-center gap-2 hover:opacity-80";
@@ -92,7 +102,7 @@ let patched = 0;
 const renamed = []; // [{from, to}] — static chunks only; used to bust browser caches
 for (const file of walk(ROOT)) {
   const before = fs.readFileSync(file, "utf8");
-  if (!before.includes("flex items-center gap-8")) continue;
+  if (!before.includes("flex items-center gap-")) continue;
   const after = before.replace(PATTERN, (_m, open, jsx) => open + button(jsx));
   if (after !== before) {
     fs.writeFileSync(file, after);
