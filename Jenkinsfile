@@ -273,7 +273,7 @@ pipeline {
             environment {
                 // The dev cluster (RKE2 at 10.0.1.58), as its crop-ci service
                 // account.
-                KUBECONFIG_CREDENTIAL = 'gen2-dev-new-kubeconfig'
+                KUBECONFIG_CREDENTIAL = 'crop-dev-kubeconfig'
                 // The subchart rejects release names over 18 characters, and
                 // cropsown-registry is 17.
                 HELM_RELEASE          = 'cropsown-registry'
