@@ -5,7 +5,7 @@
 #
 #   kubectl apply -f ci/k8s/crop-ci-dev.yaml
 #
-# then build the gen2-dev-new-kubeconfig Jenkins credential from it with
+# then build the crop-dev-kubeconfig Jenkins credential from it with
 # ci/k8s/make-crop-ci-kubeconfig.sh.
 #
 # crop-ci gets the built-in `admin` role in crop and nothing wider, plus the
