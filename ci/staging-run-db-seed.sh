@@ -20,6 +20,12 @@
 # mnemonics are unique). MinIO image/template uploads, the platform's generic geo
 # loader and sample data stay off.
 #
+# Before applying, every Secret and key the Job reads is checked in the
+# namespace: a missing one leaves the pod in CreateContainerConfigError, so the
+# run stops there and names it. The AWE callback HMAC secret is the exception:
+# the chart makes it in a pre-install/pre-upgrade hook, which this script never
+# runs, so when staging has none it is created here (never overwritten).
+#
 # Env:
 #   KUBECONFIG       the staging cluster                       required
 #   AWS_ACCOUNT_ID   owner of the ECR registry                 required
@@ -97,6 +103,41 @@ echo "--- what it connects to"
 grep -E -A1 'name: (PGHOST|PGDATABASE|MD_PGDATABASE|AWE_PGDATABASE|AWE_CALLBACK_CALLER_SERVICE|LOAD_[A-Z_]+)$' "$WORK/job.yaml" \
   | grep -E 'name:|value:' | paste - - | sed 's/ *- name: /  /; s/ *value: / = /'
 
+# The Secrets it reads, as "ENV SECRET KEY" lines.
+awk '
+  /^ *- name: /      { env = $3 }
+  /secretKeyRef:/    { ref = 1; next }
+  ref && /^ *name: / { sec = $2 }
+  ref && /^ *key: /  { key = $2; gsub(/"/, "", sec); gsub(/"/, "", key); print env, sec, key; ref = 0 }
+' "$WORK/job.yaml" > "$WORK/secret-refs"
+
+echo "--- secrets it reads"
+MISSING=(); CREATE_HMAC=false
+if [ ! -s "$WORK/secret-refs" ]; then
+  echo "warning: found no secretKeyRefs in the rendered Job; not checking secrets" >&2
+elif [ "$(kubectl -n "$NS" auth can-i get secrets 2>/dev/null)" != yes ]; then
+  echo "warning: this kubeconfig cannot read secrets in ${NS}; not checking them" >&2
+else
+  while read -r ENV SEC KEY; do
+    VAL="$(kubectl -n "$NS" get secret "$SEC" -o go-template="{{index .data \"${KEY}\"}}" 2>/dev/null || true)"
+    if [ -n "$VAL" ] && [ "$VAL" != "<no value>" ]; then
+      echo "  ok       ${ENV} <- ${SEC}/${KEY}"
+    elif [ "$ENV" = AWE_CALLBACK_HMAC_SECRET ] && ! kubectl -n "$NS" get secret "$SEC" >/dev/null 2>&1; then
+      echo "  create   ${ENV} <- ${SEC}/${KEY} (not in ${NS}; the chart's hook that makes it never ran here)"
+      CREATE_HMAC=true; HMAC_SECRET="$SEC"; HMAC_KEY="$KEY"
+    else
+      echo "  MISSING  ${ENV} <- ${SEC}/${KEY}"
+      MISSING+=("${SEC}/${KEY}")
+    fi
+  done < "$WORK/secret-refs"
+fi
+if [ "${#MISSING[@]}" -gt 0 ]; then
+  echo "ERROR: the Job reads Secrets/keys that are not in namespace ${NS}: ${MISSING[*]}" >&2
+  echo "       its pod would sit in CreateContainerConfigError. Create them, or point" >&2
+  echo "       staging's release values at ones that exist, and re-run." >&2
+  exit 1
+fi
+
 if ! $APPLY; then
   cp "$WORK/job.yaml" "./db-seed-job-${TAG}.yaml"
   echo; echo "dry run: nothing changed. Rendered Job: ./db-seed-job-${TAG}.yaml. Re-run with --apply."
@@ -116,19 +157,41 @@ elif ! kubectl -n "$NS" get secret "$PULL_SECRET" >/dev/null 2>&1; then
     --dry-run=client -o yaml | kubectl -n "$NS" apply -f -
 fi
 
+# Same semantics as the chart's hook: a random value, kept by helm. `create`
+# (not apply) so an existing secret is never overwritten: staff-portal-api's
+# signer and the AWE callback_secret row db-seed writes must agree on it.
+if $CREATE_HMAC; then
+  say "Creating secret ${HMAC_SECRET}"
+  kubectl -n "$NS" create secret generic "$HMAC_SECRET" \
+    --from-literal="${HMAC_KEY}=$(head -c 64 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | cut -c1-32)" \
+    --dry-run=client -o yaml \
+    | kubectl annotate --local -f - helm.sh/resource-policy=keep -o yaml \
+    | kubectl -n "$NS" create -f -
+fi
+
 # A finished Job from an earlier run keeps the name; replace it.
 kubectl -n "$NS" delete job "$JOB" --ignore-not-found --wait=true
 kubectl -n "$NS" apply -f "$WORK/job.yaml"
 
 say "Waiting for ${JOB} (its init containers wait for the APIs and AWE first)"
-# Stop at whichever comes first: Complete, Failed (backoff limit), or the timeout.
+# Stop at whichever comes first: Complete, Failed (backoff limit), a container
+# that cannot start (a minute of CreateContainerConfigError or image pull
+# errors), or the timeout.
 RESULT=timeout
+STUCK=0
 END=$(( $(date +%s) + ${SEED_TIMEOUT%s} ))
 while [ "$(date +%s)" -lt "$END" ]; do
   C="$(kubectl -n "$NS" get job "$JOB" -o jsonpath='{range .status.conditions[?(@.status=="True")]}{.type}{" "}{end}' 2>/dev/null || true)"
   case " $C " in
     *" Complete "*) RESULT=complete; break ;;
     *" Failed "*)   RESULT=failed;   break ;;
+  esac
+  W="$(kubectl -n "$NS" get pods -l "job-name=${JOB}" -o jsonpath='{range .items[*].status.containerStatuses[*]}{.state.waiting.reason}{" "}{end}' 2>/dev/null || true)"
+  case " $W " in
+    *" CreateContainerConfigError "*|*" ImagePullBackOff "*|*" ErrImagePull "*|*" InvalidImageName "*)
+      STUCK=$(( STUCK + 1 ))
+      if [ "$STUCK" -ge 6 ]; then RESULT="${W% }"; break; fi ;;
+    *) STUCK=0 ;;
   esac
   sleep 10
 done
@@ -140,5 +203,7 @@ else
   kubectl -n "$NS" get job "$JOB" -o wide >&2 || true
   kubectl -n "$NS" get pods -l "job-name=${JOB}" >&2 || true
   kubectl -n "$NS" logs "job/${JOB}" --all-containers --prefix --tail=80 >&2 || true
+  # The reason a container never started is only in the pod's events.
+  kubectl -n "$NS" describe pods -l "job-name=${JOB}" 2>/dev/null | sed -n '/^Events:/,$p' >&2 || true
   exit 1
 fi
