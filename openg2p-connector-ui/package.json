@@ -4,11 +4,11 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --mode sandbox",
-    "dev:local": "vite --mode localapi",
-    "dev:ud": "vite --mode ud",
-    "dev:sandbox": "vite --mode sandbox",
-    "build": "tsc -b && vite build",
+    "dev": "node init && vite --mode sandbox",
+    "dev:local": "node init && vite --mode localapi",
+    "dev:ud": "node init && vite --mode ud",
+    "dev:sandbox": "node init && vite --mode sandbox",
+    "build": "node init && tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview"
   },
