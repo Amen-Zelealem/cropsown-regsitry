@@ -86,6 +86,11 @@ pipeline {
         }
 
         stage('Checkout dashboard-api') {
+            // TEMPORARY: cropsown-registry-dashboard-api has not been merged to its
+            // staging branch yet, so staging builds skip it ('Update staging
+            // images' never uses the dashboard-api image). Drop this `when` once
+            // it is merged.
+            when { not { branch 'staging' } }
             steps {
                 script {
                     // A PR build (BRANCH_NAME PR-<n>) matches on its source branch.
@@ -209,19 +214,22 @@ pipeline {
                             docker rmi "${IMAGE}:${IMAGE_TAG}" || true
                         done
 
-                        # The dashboard service, from its own repository (cloned by
-                        # 'Checkout dashboard-api'), with its own build context.
-                        IMAGE="${ECR_REGISTRY}/${DASHBOARD_API_ECR}"
-                        echo "--- dashboard-api (${DASHBOARD_API_REF_USED} @ ${DASHBOARD_API_SHA}) -> ${IMAGE}:${IMAGE_TAG} ---"
-                        docker build --pull \
-                            --label org.opencontainers.image.source="${DASHBOARD_API_REPO}" \
-                            --label org.opencontainers.image.revision="${DASHBOARD_API_SHA}" \
-                            --label org.opencontainers.image.ref.name="${DASHBOARD_API_REF_USED}" \
-                            -f .build/dashboard-api/Dockerfile \
-                            -t "${IMAGE}:${IMAGE_TAG}" -t "${IMAGE}:${BRANCH_NAME}" .build/dashboard-api
-                        docker push "${IMAGE}:${IMAGE_TAG}"
-                        docker push "${IMAGE}:${BRANCH_NAME}"
-                        docker rmi "${IMAGE}:${IMAGE_TAG}" || true
+                        # Skipped when 'Checkout dashboard-api' did not run (staging).
+                        if [ -n "${DASHBOARD_API_SHA:-}" ]; then
+                            # The dashboard service, from its own repository (cloned by
+                            # 'Checkout dashboard-api'), with its own build context.
+                            IMAGE="${ECR_REGISTRY}/${DASHBOARD_API_ECR}"
+                            echo "--- dashboard-api (${DASHBOARD_API_REF_USED} @ ${DASHBOARD_API_SHA}) -> ${IMAGE}:${IMAGE_TAG} ---"
+                            docker build --pull \
+                                --label org.opencontainers.image.source="${DASHBOARD_API_REPO}" \
+                                --label org.opencontainers.image.revision="${DASHBOARD_API_SHA}" \
+                                --label org.opencontainers.image.ref.name="${DASHBOARD_API_REF_USED}" \
+                                -f .build/dashboard-api/Dockerfile \
+                                -t "${IMAGE}:${IMAGE_TAG}" -t "${IMAGE}:${BRANCH_NAME}" .build/dashboard-api
+                            docker push "${IMAGE}:${IMAGE_TAG}"
+                            docker push "${IMAGE}:${BRANCH_NAME}"
+                            docker rmi "${IMAGE}:${IMAGE_TAG}" || true
+                        fi
 
                         # An ECR pull token for the deploy node to write into the
                         # namespace's imagePullSecret. The cluster's own
