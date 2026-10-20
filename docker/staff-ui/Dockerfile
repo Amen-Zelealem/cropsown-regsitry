@@ -85,3 +85,7 @@ RUN sed -i 's/upgrade-insecure-requests//g' /app/.next/server/middleware.js
 
 
 
+
+COPY --chown=nextjs docker/staff-ui/assets/cropsown-prefill-overlay.js /app/public/cropsown-prefill-overlay.js
+COPY --chown=nextjs docker/staff-ui/assets/patch-prefill-overlay.js /tmp/patch-prefill-overlay.js
+RUN node /tmp/patch-prefill-overlay.js && rm /tmp/patch-prefill-overlay.js
