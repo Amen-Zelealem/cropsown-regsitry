@@ -39,6 +39,10 @@ RUN addgroup --system --gid 1001 nodejs \
 
 COPY --from=builder --chown=nextjs:nodejs /out ./
 
+COPY --chown=nextjs docker/staff-ui/assets/cropsown-prefill-overlay.js /app/public/cropsown-prefill-overlay.js
+COPY --chown=nextjs docker/staff-ui/assets/patch-prefill-overlay.js /tmp/patch-prefill-overlay.js
+RUN node /tmp/patch-prefill-overlay.js && rm /tmp/patch-prefill-overlay.js
+
 USER nextjs
 EXPOSE 3000
 CMD ["node", "server.js"]
