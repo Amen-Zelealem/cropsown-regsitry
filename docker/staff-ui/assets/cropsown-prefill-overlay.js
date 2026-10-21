@@ -141,20 +141,16 @@
   // Fill `el` with `value` unless the user has put something else there. A value
   // we set ourselves is tracked so a later Land ID change may replace it.
   function autoFill(el, value) {
-    if (!value) return;
-    if (el.value && el.value !== el.__csAuto) return;
-    if (el.tagName === "SELECT" && !hasOption(el, value)) return;
-    if (el.value === value) return;
+    if (!value || el.__csUser) return false;
+    if (el.value && el.value !== el.__csAuto) return false;
+    if (el.tagName === "SELECT" && !hasOption(el, value)) return false;
+    if (el.value === value) return false;
     el.__csAuto = value;
     setValue(el, value);
+    return true;
   }
 
   function wire(dialog, rows) {
-    var land = control(dialog, FIELDS.land.label, FIELDS.land.tag);
-    if (!land) return;
-    var season = control(dialog, FIELDS.season.label, FIELDS.season.tag);
-    var crop = control(dialog, FIELDS.crop.label, FIELDS.crop.tag);
-
     var lands = distinct(rows.map(function (r) { return r.land; }));
     if (!lands.length) return;
 
@@ -163,28 +159,36 @@
     if (!list) { list = document.createElement("datalist"); list.id = listId; document.body.appendChild(list); }
     list.innerHTML = "";
     lands.forEach(function (l) { var o = document.createElement("option"); o.value = l; list.appendChild(o); });
-    land.setAttribute("list", listId);
 
+    // One field per pass: the portal builds each update from the form as of its
+    // last render, so fields written in the same instant overwrite each other.
     function apply() {
-      if (lands.length === 1) autoFill(land, lands[0]);
-      var chosen = land.value.trim();
-      var matches = rows.filter(function (r) { return r.land === chosen; });
-      if (season) {
-        var seasons = distinct(matches.map(function (r) { return r.season; }));
-        if (seasons.length === 1) autoFill(season, seasons[0]);
-      }
-      if (crop) {
-        var crops = distinct(matches.map(function (r) { return r.crop; }));
-        if (crops.length === 1) autoFill(crop, crops[0]);
-      }
+      var land = control(dialog, FIELDS.land.label, FIELDS.land.tag);
+      if (!land) return;
+      land.setAttribute("list", listId);
+      if (lands.length === 1 && autoFill(land, lands[0])) return;
+      var matches = rows.filter(function (r) { return r.land === land.value.trim(); });
+      var season = control(dialog, FIELDS.season.label, FIELDS.season.tag);
+      var crop = control(dialog, FIELDS.crop.label, FIELDS.crop.tag);
+      var seasons = distinct(matches.map(function (r) { return r.season; }));
+      if (season && seasons.length === 1 && autoFill(season, seasons[0])) return;
+      var crops = distinct(matches.map(function (r) { return r.crop; }));
+      if (crop && crops.length === 1) autoFill(crop, crops[0]);
     }
-    land.addEventListener("input", apply);
-    land.addEventListener("change", apply);
+    var queued = null;
+    function schedule() {
+      if (!queued) queued = setTimeout(function () { queued = null; apply(); }, 150);
+    }
+    function markUser(ev) { if (ev.isTrusted && ev.target) ev.target.__csUser = true; }
+    dialog.addEventListener("input", markUser, true);
+    dialog.addEventListener("change", markUser, true);
+    dialog.addEventListener("input", schedule);
+    dialog.addEventListener("change", schedule);
+    new MutationObserver(schedule).observe(dialog, { childList: true, subtree: true });
+    var timer = setInterval(function () {
+      if (document.body.contains(dialog)) schedule(); else clearInterval(timer);
+    }, 250);
     apply();
-    // the selects load their options asynchronously; try again as they arrive
-    [season, crop].forEach(function (sel) {
-      if (sel) new MutationObserver(apply).observe(sel, { childList: true });
-    });
   }
 
   var wired = new WeakSet();
