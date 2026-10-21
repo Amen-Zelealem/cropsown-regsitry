@@ -4,10 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --mode sandbox",
-    "dev:local": "vite --mode localapi",
-    "dev:ud": "vite --mode ud",
-    "dev:sandbox": "vite --mode sandbox",
+    "dev": "node api.js && vite --mode sandbox",
+    "dev:local": "node api.js && vite --mode localapi",
+    "dev:ud": "node api.js && vite --mode ud",
+    "dev:sandbox": "node api.js && vite --mode sandbox",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview"
