@@ -20,7 +20,14 @@
     crop:   { label: /^(Crop|Actual Crop Name|Crop type affected)$/, tag: "select" }
   };
   var nativeFetch = window.fetch;
-  var cache = { rows: {}, local: {}, submissionId: null };
+  var cache = { rows: {}, submissionId: null };
+  var STORE = "cropsownPrefillRows:";
+  function localRows(key) {
+    try { return JSON.parse(sessionStorage.getItem(STORE + key)) || []; } catch (e) { return []; }
+  }
+  function addLocalRow(key, row) {
+    try { sessionStorage.setItem(STORE + key, JSON.stringify(localRows(key).concat(row))); } catch (e) { /* storage unavailable */ }
+  }
 
   var m = location.pathname.match(/\/intake-form\/[^/]+\/submission\/([0-9a-fA-F-]{36})/);
   if (m) cache.submissionId = m[1];
@@ -42,7 +49,7 @@
     try {
       var u = typeof input === "string" ? input : (input && input.url) || "";
       if (/save-intake-form-submission|register\/(update|save|create)|change-request\/create/.test(u)) {
-        p.then(function () { cache.rows = {}; cache.local = {}; }).catch(function () {});
+        p.then(function () { cache.rows = {}; }).catch(function () {});
       }
     } catch (e) { /* never break the portal */ }
     return p;
@@ -93,9 +100,8 @@
   function sharedRows() {
     var key = scopeKey();
     if (!key) return Promise.resolve([]);
-    return savedRows(key).then(function (rows) { return rows.concat(cache.local[key] || []); });
+    return savedRows(key).then(function (rows) { return rows.concat(localRows(key)); });
   }
-  // remember what a dialog just saved, until the server copy is refetched
   function remember(dialog) {
     var key = scopeKey(), v = {};
     if (!key) return;
@@ -103,7 +109,7 @@
       var el = control(dialog, FIELDS[f].label, FIELDS[f].tag);
       v[f] = el ? el.value.trim() : "";
     });
-    if (v.land && (v.season || v.crop)) (cache.local[key] = cache.local[key] || []).push(v);
+    if (v.land && (v.season || v.crop)) addLocalRow(key, v);
   }
 
   function labelOf(label) { return label.textContent.replace(/\s+/g, " ").replace(/\s*\*$/, "").trim(); }
