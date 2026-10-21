@@ -148,7 +148,6 @@ activemq-data/
 *.sage.py
 
 # Environments
-.env
 .envrc
 .venv
 env/
@@ -224,7 +223,6 @@ __marimo__/
 #poetry.lock
 #pdm.lock
 #uv.lock
-.env.*
 !.env.example
 # FastAPI / Uvicorn / Gunicorn runtime
 *.sock
@@ -288,3 +286,5 @@ openg2p-connector-service/celerybeat-schedule*
 
 # CI checkout of the dashboard service (Jenkinsfile, stage "Checkout dashboard-api").
 .build/
+config.bat
+node_modules
