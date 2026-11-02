@@ -56,3 +56,26 @@ def test_odk_season_uses_mds_codes_without_reinterpreting_unsupported_bega(value
         'planning':[{}], 'farmer_identity':{'farmer_id':'FR-000000000001','fayda_id':'001234567890'},
         'production_season_info':{'crop_year':'2026','production_season':value}}))
     assert result['cs_intake_season'][0]['production_season']==expected
+
+
+@pytest.mark.parametrize('stage',['planning','cult_land_prep','sowing_details','harvesting'])
+def test_odk_crop_year_is_text_even_when_central_sends_a_number(stage):
+    """ODK Central returns an int question as a JSON number; the crop year column is text."""
+    template=(ROOT/'templates'/'odk_to_crop_intake.j2').read_text(encoding='utf-8')
+    result=json.loads(Environment().from_string(template).render(expanded={
+        stage:[{}] if stage!='harvesting' else {},
+        'farmer_identity':{'farmer_id':'FR-000000000001','fayda_id':'001234567890'},
+        'production_season_info':{'crop_year':2026,'production_season':'SEASON_MEHER'}}))
+    season=result['cs_intake_season' if stage=='planning' else 'cs_common_intake_season'][0]
+    assert season['crop_year']=='2026'
+
+
+def test_odk_infestation_types_use_the_pack_codes():
+    template=(ROOT/'templates'/'odk_to_crop_intake.j2').read_text(encoding='utf-8')
+    result=json.loads(Environment().from_string(template).render(expanded={
+        'sowing_details':[{}],
+        'farmer_identity':{'farmer_id':'FR-000000000001','fayda_id':'001234567890'},
+        'production_season_info':{'crop_year':2026,'production_season':'SEASON_MEHER'},
+        'infestation_incidents':[{'infestation_land_info_id':'L1','infestation_type_ids':'pest weed disease'}]}))
+    assert 'INFESTATION_TYPE_PEST' not in json.dumps(result)
+    assert {'INFT_PEST','INFT_WEED','INFT_DISEASE'} <= set(json.dumps(result).replace('"',' ').replace('[',' ').replace(']',' ').replace(',',' ').split())

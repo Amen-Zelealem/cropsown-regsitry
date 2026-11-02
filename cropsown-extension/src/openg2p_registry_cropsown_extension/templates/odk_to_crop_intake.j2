@@ -197,14 +197,14 @@
 } %}
 
 {% set inf_type_map = {
-  "disease": "INFESTATION_TYPE_DISEASE",
-  "pest": "INFESTATION_TYPE_PEST",
-  "weed": "INFESTATION_TYPE_WEED",
+  "disease": "INFT_DISEASE",
+  "pest": "INFT_PEST",
+  "weed": "INFT_WEED",
   "nutrient_deficiency": "INFESTATION_TYPE_NUTRIENT",
   "climate_shock": "INFESTATION_TYPE_CLIMATE",
-  "infestation_type_disease": "INFESTATION_TYPE_DISEASE",
-  "infestation_type_pest": "INFESTATION_TYPE_PEST",
-  "infestation_type_weed": "INFESTATION_TYPE_WEED",
+  "infestation_type_disease": "INFT_DISEASE",
+  "infestation_type_pest": "INFT_PEST",
+  "infestation_type_weed": "INFT_WEED",
   "infestation_type_nutrient": "INFESTATION_TYPE_NUTRIENT",
   "infestation_type_climate": "INFESTATION_TYPE_CLIMATE"
 } %}
@@ -318,7 +318,7 @@
     }
   ],
   "cs_intake_season": [{
-    "crop_year": {{ crop_year | tojson }},
+    "crop_year": {{ crop_year | string | tojson }},
     "production_season": {{ season_val | tojson }}
   }],
   "cs_cropsown_location": [
@@ -551,7 +551,7 @@
     }
   ],
   "cs_common_intake_season": [{
-    "crop_year": {{ crop_year | tojson }},
+    "crop_year": {{ crop_year | string | tojson }},
     "production_season": {{ season_val | tojson }}
   }],
   "cs_cultivation_details": [
@@ -739,7 +739,7 @@
     }
   ],
   "cs_common_intake_season": [{
-    "crop_year": {{ crop_year | tojson }},
+    "crop_year": {{ crop_year | string | tojson }},
     "production_season": {{ sow_season | tojson }}
   }],
   "cs_sowing_details": [
@@ -887,7 +887,7 @@
     }
   ],
   "cs_common_intake_season": [{
-    "crop_year": {{ crop_year | tojson }},
+    "crop_year": {{ crop_year | string | tojson }},
     "production_season": {{ harvest_season | tojson }}
   }],
   "cs_harvest_details": [
