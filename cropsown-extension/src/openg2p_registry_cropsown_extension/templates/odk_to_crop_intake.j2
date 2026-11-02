@@ -759,13 +759,13 @@
     {% else %}
       {% set cs_json = '[]' %}
     {% endif %}
-    {% set raw_area = id_details.get('independent_area_sown') if id_details.get('independent_area_sown') is not none else (id_details.get('area_sown') if id_details.get('area_sown') is not none else cl_details.get('area_sown')) %}
+    {% set raw_area = id_details.get('independent_area_sown') if id_details.get('independent_area_sown') is not none else (id_details.get('area_sown') if id_details.get('area_sown') is not none else (cl_details.get('cluster_area_sown') if cl_details.get('cluster_area_sown') is not none else cl_details.get('area_sown'))) %}
     {% set s_area = (raw_area | float) if raw_area is not none and raw_area else 1.0 %}
     {% if s_area <= 0 %}{% set s_area = 1.0 %}{% endif %}
     {% set raw_sow_dt = id_details.get('sowing_date_gc') or sub_dt %}
     {% set sow_dt = sub_dt if raw_sow_dt > sub_dt else raw_sow_dt %}
     {% set has_pest = 'true' if (id_details.get('independent_has_pest_disease') == 'yes' or id_details.get('has_pest_disease') == 'yes') else 'false' %}
-    {% set cl_has_pest = 'true' if (cl_details.get('has_pest_disease') == 'yes' or cl_details.get('sowing_has_pest_disease') == 'yes') else 'false' %}
+    {% set cl_has_pest = 'true' if (cl_details.get('cluster_has_pest_disease') == 'yes' or cl_details.get('has_pest_disease') == 'yes' or cl_details.get('sowing_has_pest_disease') == 'yes') else 'false' %}
     {% set raw_crop = (id_details.get('crop_name_id') or s.get('commodity') or '') | lower %}
     {% set crop_val = crop_map.get(raw_crop, id_details.get('crop_name_id') or s.get('commodity') or '') %}
     {% set raw_fert = (id_details.get('actual_fertilizer_type') or '') | lower %}
@@ -780,7 +780,7 @@
       "cluster_season": "{{ cl_season }}",
       "agro_ecological_zone": "{{ (cl_details.get('cluster_agro_ecological_zone') or '') | upper }}",
       "cluster_area_hectare": {{ (cl_details.get('cluster_area_hectare') or 0) | float }},
-      "cluster_area_sown": {{ (cl_details.get('area_sown') or 0) | float }},
+      "cluster_area_sown": {{ (cl_details.get('cluster_area_sown') or cl_details.get('area_sown') or 0) | float }},
       "cluster_has_pest_disease": {{ cl_has_pest }},
       "season": "{{ sow_season }}",
       "commodity": "{{ crop_val }}",
@@ -839,7 +839,7 @@
       "pesticide_frequency": "{{ po.get('pest_frequency_of_application') or po.get('pest_pesticide_frequency') or '' }}",
       "weed_type": "{{ wo.get('weed_type') or '' }}",
       "weed_name": "{{ wo.get('weed_name_id') or '' }}",
-      "weed_control_method": "{{ wo.get('pesticide_method') or '' }}",
+      "weed_control_method": "{{ wo.get('weed_control_method') or wo.get('pesticide_method') or '' }}",
       "weedicide_type": "{{ wo.get('weedicide_type') or '' }}",
       "weedicide_name": "{{ wo.get('weedicide_name') or '' }}",
       "weedicide_frequency": "{{ wo.get('weed_frequency_of_application') or wo.get('weedicide_frequency') or '' }}",
