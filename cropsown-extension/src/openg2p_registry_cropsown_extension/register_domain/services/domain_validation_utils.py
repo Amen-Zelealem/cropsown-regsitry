@@ -157,6 +157,30 @@ async def resolve_production_season(record: dict, session) -> str | None:
         if isinstance(k, str) and k.endswith("production_season") and v:
             return v
 
+    # The platform calls validate_domain_attributes (and thus this) WITHOUT a DB
+    # session during the intake "Next" / CR save, and child-section payloads carry
+    # no submission/record id. Supply the submission_id from the intake-save
+    # ContextVar (set by CropIntakeService) and open our own session, then reuse
+    # the DB resolution below.
+    if session is None:
+        enriched = record
+        if not record.get("submission_id"):
+            try:
+                from .crop_intake_service import submission_ctx
+
+                ctx_submission = submission_ctx.get()
+            except Exception:
+                ctx_submission = None
+            if ctx_submission:
+                enriched = {**record, "submission_id": ctx_submission}
+        try:
+            from openg2p_fastapi_common.context import get_async_session_maker
+
+            async with get_async_session_maker()() as own_session:
+                return await resolve_production_season(enriched, own_session)
+        except Exception:
+            return None
+
     submission_id = record.get("submission_id")
     if session and submission_id:
         from sqlalchemy import text
@@ -256,6 +280,74 @@ async def resolve_production_season(record: dict, session) -> str | None:
                 return row_reg2[0]
 
     return None
+
+
+async def run_previous_section_validation(validator, records: list[dict], session) -> None:
+    """Bridge the on-"Next" section save to the cross-section date validators.
+
+    On the Next button the platform calls ``validate_domain_attributes`` WITHOUT a
+    DB session, and the child payload carries no ``submission_id`` — so the
+    cross-section validators (which need both) never run. Resolve ``submission_id``
+    (payload first, then the intake-save ContextVar set by ``CropIntakeService``)
+    and open our own session when none was supplied. Validation errors propagate
+    (to block Next); infrastructure errors are swallowed so plumbing never blocks
+    a save.
+    """
+    rows = [r for r in (records or []) if isinstance(r, dict)]
+    submission_id = next((str(r.get("submission_id")) for r in rows if r.get("submission_id")), None)
+    if not submission_id:
+        try:
+            from .crop_intake_service import submission_ctx
+
+            submission_id = submission_ctx.get()
+        except Exception:
+            submission_id = None
+    if not submission_id:
+        return
+    try:
+        if session is not None:
+            await validator(session, rows, submission_id)
+        else:
+            from openg2p_fastapi_common.context import get_async_session_maker
+
+            async with get_async_session_maker()() as own_session:
+                await validator(own_session, rows, submission_id)
+    except G2PRegistryException:
+        raise
+    except Exception:
+        return
+
+
+async def run_record_cross_validation(check, record: dict, session) -> None:
+    """Bridge a per-record section cross-check (signature ``check(record, session)``)
+    so it runs on the Next button. When the platform supplies no session, enrich the
+    record with submission_id from the intake-save ContextVar and self-open a session.
+    These checks match the previous section by land_id + season against the register,
+    so they resolve even without submission/link context. Validation errors propagate
+    (to block Next); infrastructure errors are swallowed.
+    """
+    if session is not None:
+        await check(record, session)
+        return
+    enriched = record
+    if not record.get("submission_id"):
+        try:
+            from .crop_intake_service import submission_ctx
+
+            sid = submission_ctx.get()
+        except Exception:
+            sid = None
+        if sid:
+            enriched = {**record, "submission_id": sid}
+    try:
+        from openg2p_fastapi_common.context import get_async_session_maker
+
+        async with get_async_session_maker()() as own_session:
+            await check(enriched, own_session)
+    except G2PRegistryException:
+        raise
+    except Exception:
+        return
 
 
 def is_record_deleted(record: dict) -> bool:

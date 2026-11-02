@@ -11,6 +11,7 @@ from datetime import date
 from openg2p_registry_core.models.g2p_intake_form import G2PIntakeForm
 from openg2p_registry_core.models import G2PRegister, G2PRegisterHistory
 from sqlalchemy import Boolean, Date, Integer, Numeric, String, select
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..services import G2PRegisterDomainServiceCultivation
@@ -32,7 +33,7 @@ class G2PCultivation:
     local_name: Mapped[str] = mapped_column(String, nullable=True)
     scientific_name: Mapped[str] = mapped_column(String, nullable=True)
     actual_yield: Mapped[float] = mapped_column(Numeric, nullable=True)
-    land_prep_method: Mapped[str] = mapped_column(String, nullable=True)      # Attribute lookup (LAND_PREP_METHOD)
+    land_prep_method: Mapped[list[str]] = mapped_column(JSONB, nullable=True)      # Attribute lookup (LAND_PREP_METHOD)
     cultivation_type: Mapped[str] = mapped_column(String, nullable=True)      # Attribute lookup (MACHINERY)
     cropping_system: Mapped[CroppingSystemEnum] = mapped_column(String, nullable=True) # CroppingSystemEnum
     actual_cultivation_date: Mapped[date] = mapped_column(Date, nullable=True)

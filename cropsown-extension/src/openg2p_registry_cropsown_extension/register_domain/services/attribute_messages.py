@@ -42,6 +42,8 @@ FIELDS = {
     "pest_type": ("Pest type", "a pest"),
     "weed_type": ("Weed type", "a weed"),
     "disease_type": ("Disease type", "a disease"),
+    "pest_name": ("Pest name", "a pest"),
+    "pesticide_method": ("Pest control method", "one"),
 }
 
 _PROBLEM = re.compile(

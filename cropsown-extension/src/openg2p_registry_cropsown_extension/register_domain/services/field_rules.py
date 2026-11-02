@@ -49,6 +49,51 @@ DATE_FIELDS = frozenset(
     ]
 )
 PAST_ONLY = frozenset({"date_of_birth", "registration_date"})
+
+# Numeric-value fields. Rule is keyed by field name, so one entry covers every
+# section (and both intake and change-request, since clean_records runs in both).
+# Measurement / quantity / yield / count fields: numeric only and >= 0.
+NON_NEGATIVE_FIELDS = frozenset(
+    {
+        # planning
+        "land_area", "planned_area", "expected_yield", "planned_seed_qty",
+        "planned_fertilizer_qty", "growth_duration_days", "planned_labor",
+        # cultivation
+        "actual_crop_area", "actual_yield", "actual_seed_qty",
+        "actual_fertilizer_qty", "actual_growth_duration_days",
+        # cultivation cluster / planning cluster
+        "cluster_area_timad", "cluster_area_hectare", "cluster_plan",
+        "cluster_collected_land", "collected_land", "collected_by_combiner",
+        "collected_quintal", "number_of_smallholders",
+        # sowing
+        "area_sown", "fertilizer_qty", "cluster_area_sown",
+        # harvest
+        "area_harvested", "qty_harvested", "qty_stored", "qty_sold",
+        "cluster_area_harvested", "cluster_qty_harvested", "cluster_qty_stored",
+        "cluster_qty_sold",
+        # production
+        "area_under_production", "yield_per_ha",
+    }
+)
+# Percentages: numeric, 0..100.
+PERCENTAGE_FIELDS = frozenset(
+    {"post_harvest_loss_pct", "cluster_post_harvest_loss_pct", "estimated_damage_pct"}
+)
+# Date parts: whole numbers in range.
+MONTH_FIELDS = frozenset({"start_month", "end_month"})
+DAY_FIELDS = frozenset({"start_day", "end_day"})
+# Coordinates: numeric but negatives are valid, so no >= 0.
+COORDINATE_FIELDS = frozenset({"latitude", "longitude", "altitude"})
+# Ethiopian mobile numbers.
+MOBILE_FIELDS = frozenset({"da_mobile_number", "supervisor_mobile_number"})
+
+# A plain decimal / integer only — rejects letters, %, kg, scientific notation,
+# thousands separators, inf/nan, and any other special sign.
+_DECIMAL_RE = re.compile(r"-?\d+(?:\.\d+)?")
+_INTEGER_RE = re.compile(r"-?\d+")
+# +251 or 0, then 7/9, then 8 digits (e.g. +251911234567 or 0911234567).
+_ETH_MOBILE_RE = re.compile(r"(?:\+251|0)[79]\d{8}")
+
 LABELS = {
     "farmer_id": "Farmer ID",
     "fayda_fin": "Fayda FIN",
@@ -64,6 +109,8 @@ LABELS = {
     "first_name_other": "First name (other language)",
     "middle_name_other": "Middle name (other language)",
     "last_name_other": "Last name (other language)",
+    "da_mobile_number": "Development agent mobile number",
+    "supervisor_mobile_number": "Supervisor mobile number",
 }
 MESSAGES = {
     "coss_field_name_format": "{label}: use 1 to 100 letters, spaces, hyphens or apostrophes. Do not use digits or other symbols.",
@@ -77,6 +124,12 @@ MESSAGES = {
     "coss_field_farmer_id_required": "{label}: enter the farmer's Farmer Registry ID (FR- followed by 12 digits).",
     "coss_field_fayda_one_of": "Fayda ID: enter the 16-digit FAN or the 12-digit FIN.",
     "coss_field_fayda_id_format": "{label}: enter the 16-digit FAN or the 12-digit FIN, digits only.",
+    "coss_field_numeric": "{label}: enter a number only — no letters, spaces or other symbols.",
+    "coss_field_non_negative": "{label}: enter a number that is 0 or greater. Negative values are not allowed.",
+    "coss_field_percentage": "{label}: enter a number between 0 and 100.",
+    "coss_field_month": "{label}: enter a whole number from 1 to 12.",
+    "coss_field_day": "{label}: enter a whole number from 1 to 31.",
+    "coss_field_mobile": "{label}: enter a valid Ethiopian mobile number (e.g. +251911234567 or 0911234567).",
 }
 
 
@@ -166,6 +219,32 @@ def clean_records(records):
                     problems.append(Issue(field, "coss_field_date_future"))
                 else:
                     record[key] = parsed.isoformat()
+            elif field in COORDINATE_FIELDS:
+                if not _DECIMAL_RE.fullmatch(str(value).strip()):
+                    problems.append(Issue(field, "coss_field_numeric"))
+            elif field in MONTH_FIELDS:
+                token = str(value).strip()
+                if not _INTEGER_RE.fullmatch(token) or not 1 <= int(token) <= 12:
+                    problems.append(Issue(field, "coss_field_month"))
+            elif field in DAY_FIELDS:
+                token = str(value).strip()
+                if not _INTEGER_RE.fullmatch(token) or not 1 <= int(token) <= 31:
+                    problems.append(Issue(field, "coss_field_day"))
+            elif field in PERCENTAGE_FIELDS:
+                token = str(value).strip()
+                if not _DECIMAL_RE.fullmatch(token):
+                    problems.append(Issue(field, "coss_field_numeric"))
+                elif not 0 <= float(token) <= 100:
+                    problems.append(Issue(field, "coss_field_percentage"))
+            elif field in NON_NEGATIVE_FIELDS:
+                token = str(value).strip()
+                if not _DECIMAL_RE.fullmatch(token):
+                    problems.append(Issue(field, "coss_field_numeric"))
+                elif float(token) < 0:
+                    problems.append(Issue(field, "coss_field_non_negative"))
+            elif field in MOBILE_FIELDS:
+                if not _ETH_MOBILE_RE.fullmatch(str(value).strip()):
+                    problems.append(Issue(field, "coss_field_mobile"))
         problems.extend(identity_issues(record))
     return problems
 

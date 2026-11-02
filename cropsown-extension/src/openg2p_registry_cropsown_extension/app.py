@@ -31,6 +31,8 @@ class Initializer(BaseInitializer):
         install_history_without_change_request()
         from .register_domain.services.attribute_messages import install_attribute_messages
         install_attribute_messages()
+        from .register_domain.services.crop_intake_service import install as install_crop_intake
+        install_crop_intake()
 
     async def fastapi_app_startup(self, app):
         await super().fastapi_app_startup(app)

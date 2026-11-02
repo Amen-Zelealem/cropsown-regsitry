@@ -49,7 +49,14 @@ class G2PRegisterDomainServiceSowing(G2PRegisterDomainService):
                 await self._validate_sowing_after_cultivation(record, session=session)
                 await self._validate_sowing_area_after_cultivation(record, session=session)
                 await self._validate_date_in_season_enhanced(record, "sowing_date", session=session)
+            # Area cross-check on Next: Area Sown <= matching Cultivation's Actual Crop Area.
+            from .domain_validation_utils import run_record_cross_validation
+            await run_record_cross_validation(self._validate_sowing_area_after_cultivation, record, session)
         self._validate_no_duplicate_commodity_season(active_records)
+        # Cross-section (on Next): Sowing date >= matching Cultivation / Cultivation Cluster date.
+        from .domain_validation_utils import run_previous_section_validation
+        from .cropsown_intake_validation_service import validate_sowing_against_cultivation
+        await run_previous_section_validation(validate_sowing_against_cultivation, active_records, session)
 
     def _validate_no_duplicate_commodity_season(self, records: list[dict]) -> None:
         seen: set[tuple[str, str, str]] = set()

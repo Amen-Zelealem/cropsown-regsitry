@@ -12228,7 +12228,7 @@
           },
           {
             "field_name": "land_prep_method",
-            "data_type": "string",
+            "data_type": "json",
             "required": false,
             "nullable": true
           },

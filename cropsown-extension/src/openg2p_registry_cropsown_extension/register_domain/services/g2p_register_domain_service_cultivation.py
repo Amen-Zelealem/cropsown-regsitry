@@ -58,6 +58,10 @@ class G2PRegisterDomainServiceCultivation(G2PRegisterDomainService):
                 await self._validate_date_after_planning(record, session)
             compute_ec_date(record, "actual_cultivation_date", "actual_cultivation_date_ec")
         self._validate_no_duplicate_commodity_season(active_records)
+        # Cross-section (on Next): Cultivation date >= matching Planning date.
+        from .domain_validation_utils import run_previous_section_validation
+        from .cropsown_intake_validation_service import validate_cultivation_against_planning
+        await run_previous_section_validation(validate_cultivation_against_planning, active_records, session)
 
     def _validate_no_duplicate_commodity_season(self, records: list[dict]) -> None:
         seen: set[tuple[str, str, str]] = set()

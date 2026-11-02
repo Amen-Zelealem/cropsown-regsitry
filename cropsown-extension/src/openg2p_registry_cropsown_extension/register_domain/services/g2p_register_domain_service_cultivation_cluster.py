@@ -51,6 +51,10 @@ class G2PRegisterDomainServiceCultivationCluster(G2PRegisterDomainService):
             if session:
                 await self._validate_land_id_matches_planning(record, session=session)
         self._validate_no_duplicate_cluster(active_records)
+        # Cross-section (on Next): Cultivation Cluster date >= matching Planning date.
+        from .domain_validation_utils import run_previous_section_validation
+        from .cropsown_intake_validation_service import validate_cultivation_cluster_against_planning
+        await run_previous_section_validation(validate_cultivation_cluster_against_planning, active_records, session)
 
     def _validate_no_duplicate_cluster(self, records: list[dict]) -> None:
         seen: set[tuple[str, str, str]] = set()

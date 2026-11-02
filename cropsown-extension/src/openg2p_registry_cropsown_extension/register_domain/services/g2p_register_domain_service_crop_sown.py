@@ -42,11 +42,91 @@ def validate_production_season_fields(record):
 
 
 class G2PRegisterDomainServiceCropSown(G2PRegisterDomainService):
+    # Intake child tables that hang off the root crop_sown parent via link_internal_record_id.
+    _CHILD_INTAKE_TABLES = (
+        "g2p_intake_form_plannings",
+        "g2p_intake_form_cultivations",
+        "g2p_intake_form_cultivation_clusters",
+        "g2p_intake_form_clusters",
+        "g2p_intake_form_sowings",
+        "g2p_intake_form_harvests",
+        "g2p_intake_form_productions",
+        "g2p_intake_form_infestations",
+    )
+
     async def post_ingest(self, register_id, register_row, session):
         if register_id != CROP_SOWN_REGISTER_ID:
             return
+        if await self._coss_reuse_existing_parent(register_row, session):
+            # Reused an existing parent; this just-created root was retired.
+            return
         from .farmer_name_projection import refresh_crop_name_on_ingest
         await refresh_crop_name_on_ingest(session, register_row)
+
+    async def _coss_reuse_existing_parent(self, register_row, session) -> bool:
+        """Parent reuse. If an ACTIVE Crop Sown parent already exists for the same
+        four keys (Farmer ID + Fayda ID + Crop Year + Production Season), attach
+        THIS submission's child rows to it and retire the just-created duplicate
+        root.
+
+        This runs inside the ingest worker's transaction at the root's
+        ``post_ingest`` — and the root CropSown section is ingested BEFORE its child
+        sections, so the child register rows are not built yet. Re-pointing the
+        child *intake* rows here makes the worker create them directly under the
+        existing parent. If no 4-key match exists, nothing is changed and the new
+        parent stands (any section, incl. Sowing/Harvest, may create one).
+        """
+        from sqlalchemy import text
+
+        from .cropsown_intake_validation_service import clean_season
+
+        rid = str(getattr(register_row, "internal_record_id", "") or "")
+        farmer_id = str(getattr(register_row, "farmer_id", "") or "").strip()
+        fayda = str(getattr(register_row, "fayda_fan_id", "") or "").strip()
+        crop_year = str(getattr(register_row, "crop_year", "") or "").strip()
+        season_clean = clean_season(getattr(register_row, "production_season", "") or "")
+        if not rid or not fayda:
+            return False
+
+        fayda_ns = fayda.replace(" ", "")
+        res = await session.execute(
+            text(
+                """
+                SELECT internal_record_id, production_season
+                FROM g2p_register_crop_sowns
+                WHERE internal_record_id != :rid
+                  AND record_status = 'ACTIVE'
+                  AND (:farmer = '' OR farmer_id = :farmer)
+                  AND (TRIM(fayda_fan_id) = :fayda OR REPLACE(fayda_fan_id, ' ', '') = :fayda_ns)
+                  AND (:year = '' OR crop_year = :year)
+                ORDER BY created_at ASC
+                """
+            ),
+            {"rid": rid, "farmer": farmer_id, "fayda": fayda, "fayda_ns": fayda_ns, "year": crop_year},
+        )
+        parent_id = None
+        for r_id, r_season in res.fetchall():
+            if not season_clean or clean_season(r_season) == season_clean:
+                parent_id = str(r_id)
+                break
+        if not parent_id:
+            return False
+
+        # Re-link this submission's children (they point at the root R) to parent P,
+        # before the worker builds their register rows.
+        for tbl in self._CHILD_INTAKE_TABLES:
+            await session.execute(
+                text(f"UPDATE {tbl} SET link_internal_record_id = :p WHERE link_internal_record_id = :rid"),
+                {"p": parent_id, "rid": rid},
+            )
+        # Retire the duplicate root (hidden from the ACTIVE register) and drop its
+        # pending functional-id generation.
+        register_row.record_status = "INACTIVE"
+        await session.execute(
+            text("DELETE FROM g2p_functional_id_generation_queue WHERE internal_record_id = :rid"),
+            {"rid": rid},
+        )
+        return True
 
     async def validate_domain_attributes(self, records: list[dict], session=None, **kwargs):
         from .field_rules import validate_record_fields

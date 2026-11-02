@@ -1,5 +1,7 @@
 from datetime import date
-from typing import Optional
+from typing import Any, List, Optional
+
+from pydantic import field_validator
 
 from openg2p_registry_core.schemas import (
     G2PRegisterBaseSchema,
@@ -7,6 +9,16 @@ from openg2p_registry_core.schemas import (
     G2PIntakeFormSchemaBase,
 )
 from ..models.enums import CroppingSystemEnum, SeedClassEnum, SeedSourceEnum
+
+
+def _coerce_str_list(value: Any) -> Any:
+    """Normalise a multi-select value to a list."""
+    if value is None or isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        parts = [part.strip() for part in value.split(",") if part.strip()]
+        return parts or None
+    return value
 
 
 class G2PSchemaCultivation:
@@ -34,7 +46,7 @@ class G2PSchemaCultivation:
     local_name: Optional[str] = None
     scientific_name: Optional[str] = None
     actual_yield: Optional[float] = None
-    land_prep_method: Optional[str] = None
+    land_prep_method: Optional[List[str]] = None
     cultivation_type: Optional[str] = None
     cropping_system: Optional[str] = None
     actual_cultivation_date: Optional[date] = None
@@ -58,6 +70,8 @@ class G2PSchemaCultivation:
     da_mobile_number: Optional[str] = None
     supervisor_name: Optional[str] = None
     supervisor_mobile_number: Optional[str] = None
+
+    _coerce_land_prep_method = field_validator("land_prep_method", mode="before")(_coerce_str_list)
 
 
 class G2PRegisterSchemaCultivation(G2PRegisterBaseSchema, G2PSchemaCultivation):

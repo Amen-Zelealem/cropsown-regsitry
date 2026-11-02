@@ -56,7 +56,14 @@ class G2PRegisterDomainServiceHarvest(G2PRegisterDomainService):
                 # rows and has no season window, so this only affects cluster rows; if no
                 # season window is found the check is skipped (no block).
                 await self._validate_date_in_season_enhanced(record, "cluster_harvest_date", session=session)
+            # Area cross-check on Next: Area Harvested <= matching Sowing's Area Sown.
+            from .domain_validation_utils import run_record_cross_validation
+            await run_record_cross_validation(self._validate_harvest_area_after_sowing, record, session)
         self._validate_no_duplicate_commodity_season(active_records)
+        # Cross-section (on Next): Harvest date >= matching Sowing date.
+        from .domain_validation_utils import run_previous_section_validation
+        from .cropsown_intake_validation_service import validate_harvest_against_sowing
+        await run_previous_section_validation(validate_harvest_against_sowing, active_records, session)
 
     def _validate_no_duplicate_commodity_season(self, records: list[dict]) -> None:
         seen: set[tuple[str, str, str, str]] = set()
