@@ -48,7 +48,7 @@ DATE_FIELDS = frozenset(
         "start_gc",
     ]
 )
-PAST_ONLY = frozenset({"date_of_birth", "registration_date", "observation_date"})
+PAST_ONLY = frozenset({"date_of_birth", "registration_date"})
 
 # Numeric-value fields. Rule is keyed by field name, so one entry covers every
 # section (and both intake and change-request, since clean_records runs in both).
@@ -85,10 +85,7 @@ DAY_FIELDS = frozenset({"start_day", "end_day"})
 # Coordinates: numeric but negatives are valid, so no >= 0.
 COORDINATE_FIELDS = frozenset({"latitude", "longitude", "altitude"})
 # Ethiopian mobile numbers.
-# Ethiopian mobile numbers.
 MOBILE_FIELDS = frozenset({"da_mobile_number", "supervisor_mobile_number"})
-# Land ID fields: alphanumeric, slash (/), hyphen (-) only.
-LAND_ID_FIELDS = frozenset({"land_id", "cluster_land_id", "temporary_land_id", "infestation_land_info_id", "land_info_id", "cluster_land_info_id"})
 
 # A plain decimal / integer only — rejects letters, %, kg, scientific notation,
 # thousands separators, inf/nan, and any other special sign.
@@ -96,13 +93,8 @@ _DECIMAL_RE = re.compile(r"-?\d+(?:\.\d+)?")
 _INTEGER_RE = re.compile(r"-?\d+")
 # +251 or 0, then 7/9, then 8 digits (e.g. +251911234567 or 0911234567).
 _ETH_MOBILE_RE = re.compile(r"(?:\+251|0)[79]\d{8}")
-# Alphanumeric, slash (/), hyphen (-) only.
-_LAND_ID_RE = re.compile(r"^[a-zA-Z0-9/-]+$")
 
 LABELS = {
-    "land_id": "Land ID",
-    "cluster_land_id": "Land ID",
-    "temporary_land_id": "Land ID",
     "farmer_id": "Farmer ID",
     "fayda_fin": "Fayda FIN",
     "fayda_fan_id": "Fayda FAN ID",
@@ -121,7 +113,6 @@ LABELS = {
     "supervisor_mobile_number": "Supervisor mobile number",
 }
 MESSAGES = {
-    "coss_field_land_id_format": "{label}: enter letters, numbers, hyphens (-) or slashes (/) only. Other special characters and spaces are not allowed.",
     "coss_field_name_format": "{label}: use 1 to 100 letters, spaces, hyphens or apostrophes. Do not use digits or other symbols.",
     "coss_field_amharic_name_format": "{label}: use 1 to 100 Ethiopic letters, spaces, hyphens or apostrophes. Do not use digits or other symbols.",
     "coss_field_farmer_id_format": "{label}: enter FR- followed by exactly 12 digits, preserving leading zeroes.",
@@ -254,9 +245,6 @@ def clean_records(records):
             elif field in MOBILE_FIELDS:
                 if not _ETH_MOBILE_RE.fullmatch(str(value).strip()):
                     problems.append(Issue(field, "coss_field_mobile"))
-            elif field in LAND_ID_FIELDS:
-                if not _LAND_ID_RE.fullmatch(str(value).strip()):
-                    problems.append(Issue(field, "coss_field_land_id_format"))
         problems.extend(identity_issues(record))
     return problems
 

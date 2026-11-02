@@ -49,7 +49,7 @@ class G2PCultivation:
     water_source_method: Mapped[str] = mapped_column(String, nullable=True)   # Attribute lookup (WATER_SOURCE_METHOD)
     water_source_frequency: Mapped[str] = mapped_column(String, nullable=True) # Attribute lookup (WATER_SOURCE_FREQUENCY)
 
-    is_plot_registered: Mapped[bool] = mapped_column(Boolean, nullable=True)
+    is_plot_not_registered: Mapped[bool] = mapped_column(Boolean, nullable=True)
     temporary_land_id: Mapped[str] = mapped_column(String, nullable=True)
     sync_id: Mapped[str] = mapped_column(String, nullable=True, index=True)
     # Season window. Gen1 stores the month/day pair alongside the date so a
