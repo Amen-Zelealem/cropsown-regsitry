@@ -23,7 +23,7 @@
 UPDATE "public"."g2p_register_sections"
 SET "section_ui_schema" = regexp_replace(regexp_replace(regexp_replace(regexp_replace(
     section_ui_schema::text,
-    '("widget-label": )"Is plot not registered\?"([^{}]*"widget-data-path": "is_plot_not_registered")', '\1"Plot is not yet registered"\2', 'g'),
+    '("widget-label": )"Is [Pp]lot (?:not )?registered\??"([^{}]*"widget-data-path": "is_plot_registered")', '\1"Is Plot registered"\2', 'g'),
     '("widget-label": )"Method"([^{}]*"widget-data-path": "water_source_method")', '\1"Water application method"\2', 'g'),
     '("widget-label": )"Frequency"([^{}]*"widget-data-path": "water_source_frequency")', '\1"Watering frequency"\2', 'g'),
     '("widget-label": )"Reference"([^{}]*"widget-data-path": "reference")', '\1"Cluster reference"\2', 'g')::jsonb

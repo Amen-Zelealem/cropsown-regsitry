@@ -617,6 +617,7 @@ class G2PRegisterDomainServiceCropSown(G2PRegisterDomainService):
         from .g2p_register_domain_service_cultivation import G2PRegisterDomainServiceCultivation
         from .g2p_register_domain_service_sowing import G2PRegisterDomainServiceSowing
         from .g2p_register_domain_service_harvest import G2PRegisterDomainServiceHarvest
+        from .g2p_register_domain_service_infestation import G2PRegisterDomainServiceInfestation
 
         rec_id = change_request.internal_record_id
         if not rec_id:
@@ -715,6 +716,17 @@ class G2PRegisterDomainServiceCropSown(G2PRegisterDomainService):
                     h_records.append(rec)
         if h_records:
             await G2PRegisterDomainServiceHarvest().validate_domain_attributes(h_records, session=session)
+
+        # Infestation check
+        i_records = []
+        if change_request.section_id == 'cropsown_infestation_details_section_01' and cr_payload_items:
+            for item in cr_payload_items:
+                if isinstance(item, dict):
+                    rec = dict(item)
+                    rec["link_internal_record_id"] = rec_id
+                    i_records.append(rec)
+        if i_records:
+            await G2PRegisterDomainServiceInfestation().validate_domain_attributes(i_records, session=session)
 
     async def _adopt_uploaded_photo(
         self, change_request: G2PRegisterChangeRequest, session: AsyncSession
@@ -986,12 +998,13 @@ class G2PRegisterDomainServiceCropSown(G2PRegisterDomainService):
                 ).scalars().all()
                 cluster_rows.extend(ic_rows)
 
-            for c in cluster_rows:
-                lid = getattr(c, "land_id", None)
-                if lid and str(lid).strip() and str(lid).strip() not in planning_land_ids:
-                    validation_error(
-                        f"Land ID '{lid}' in Cluster information does not match any Land ID specified in Crop planning."
-                    )
+            # Optional: Land ID in Cluster information does not need to match Crop planning
+            # for c in cluster_rows:
+            #     lid = getattr(c, "land_id", None)
+            #     if lid and str(lid).strip() and str(lid).strip() not in planning_land_ids:
+            #         validation_error(
+            #             f"Land ID '{lid}' in Cluster information does not match any Land ID specified in Crop planning."
+            #         )
 
         if cultivation_land_ids:
             cultivation_cluster_rows = []
@@ -1015,12 +1028,13 @@ class G2PRegisterDomainServiceCropSown(G2PRegisterDomainService):
                 ).scalars().all()
                 cultivation_cluster_rows.extend(ic_rows)
 
-            for c in cultivation_cluster_rows:
-                lid = getattr(c, "land_id", None)
-                if lid and str(lid).strip() and str(lid).strip() not in cultivation_land_ids:
-                    validation_error(
-                        f"Land ID '{lid}' in Cultivation cluster does not match any Land ID specified in Cultivation / land preparation."
-                    )
+            # Optional: Land ID in Cultivation cluster does not need to match Cultivation / land preparation
+            # for c in cultivation_cluster_rows:
+            #     lid = getattr(c, "land_id", None)
+            #     if lid and str(lid).strip() and str(lid).strip() not in cultivation_land_ids:
+            #         validation_error(
+            #             f"Land ID '{lid}' in Cultivation cluster does not match any Land ID specified in Cultivation / land preparation."
+            #         )
 
         if planning_land_ids:
             sowing_rows = []
@@ -1074,6 +1088,18 @@ class G2PRegisterDomainServiceCropSown(G2PRegisterDomainService):
                     )
                 ).scalars().all()
                 infestation_rows.extend(ii_rows)
+
+            if change_request.section_id == 'cropsown_infestation_details_section_01':
+                try:
+                    from openg2p_registry_core.services.g2p_register_change_request_service import G2PRegisterChangeRequestService
+                    cr_service = G2PRegisterChangeRequestService.get_component() or G2PRegisterChangeRequestService()
+                    payload_obj = await cr_service._get_change_request_payload(change_request.change_request_id, session)
+                    if payload_obj and payload_obj.change_payload:
+                        for item in payload_obj.change_payload:
+                            if isinstance(item, dict) and item.get("land_id"):
+                                infestation_rows.append(type("PayloadRow", (), {"land_id": item["land_id"]})())
+                except Exception as e:
+                    _logger.debug("Failed loading CR payload in _check_matching_land_id_across_sections: %s", e)
 
             # 3. Validate Infestation Land IDs against the collected Sowing Land IDs
             for c in infestation_rows:

@@ -12,7 +12,7 @@ from ..models.enums import CroppingSystemEnum, SeedClassEnum, SeedSourceEnum
 
 class G2PSchemaPlanning:
 
-    is_plot_not_registered: Optional[bool] = None
+    is_plot_registered: Optional[bool] = None
     planning_id: Optional[str] = None
     temporary_land_id: Optional[str] = None
     sync_id: Optional[str] = None

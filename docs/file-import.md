@@ -67,7 +67,7 @@ Import configuration: `file_import_to_crop_planning_intake`.
 | `start_gc` | `cs_planning_details` | No | YYYY-MM-DD |
 | `end_gc` | `cs_planning_details` | No | YYYY-MM-DD |
 | `planned_date` | `cs_planning_details` | No | YYYY-MM-DD |
-| `is_plot_not_registered` | `cs_planning_details` | No | yes or no (also true/false, 1/0) |
+| `is_plot_registered` | `cs_planning_details` | No | yes or no (also true/false, 1/0) |
 | `cropping_system` | `cs_planning_details` | No | `MONO_CROPPING`, `INTER_CROPPING` |
 | `seed_class` | `cs_planning_details` | No | `LOCAL`, `IMPROVED` |
 | `seed_source` | `cs_planning_details` | No | `GOVERNMENT / WOREDS AGRICULTURE`, `AGRICULTURE COOPERATIVE / UNION`, `PRIVATE SEED ENTERPRISE`, `FARMER-TO-FARMER EXCHANGE / SAVED` |
@@ -111,7 +111,7 @@ Import configuration: `file_import_to_crop_cultivation_intake`.
 | `start_gc` | `cs_cultivation_details` | No | YYYY-MM-DD |
 | `end_gc` | `cs_cultivation_details` | No | YYYY-MM-DD |
 | `actual_cultivation_date` | `cs_cultivation_details` | No | YYYY-MM-DD |
-| `is_plot_not_registered` | `cs_cultivation_details` | No | yes or no (also true/false, 1/0) |
+| `is_plot_registered` | `cs_cultivation_details` | No | yes or no (also true/false, 1/0) |
 | `cropping_system` | `cs_cultivation_details` | No | `MONO_CROPPING`, `INTER_CROPPING` |
 | `actual_seed_class` | `cs_cultivation_details` | No | `LOCAL`, `IMPROVED` |
 | `actual_seed_source` | `cs_cultivation_details` | No | `GOVERNMENT / WOREDS AGRICULTURE`, `AGRICULTURE COOPERATIVE / UNION`, `PRIVATE SEED ENTERPRISE`, `FARMER-TO-FARMER EXCHANGE / SAVED` |
