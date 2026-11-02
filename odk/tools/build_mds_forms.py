@@ -50,7 +50,7 @@ REPO = Path(__file__).resolve().parents[2]
 SOURCE = REPO / "odk/source"
 FORMS = REPO / "odk/forms"
 MEDIA = REPO / "odk/media/mds"
-VERSION = "2026.10.31.2"
+VERSION = "2026.11.02.1"
 FORM_IDS = ("crop_sown_registry_plan", "crop_sown_registry_prep", "crop_sown_registry_sown", "crop_sown_registry_harvest")
 LEVELS = ("region", "zone", "woreda", "kebele")
 
