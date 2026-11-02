@@ -23,7 +23,7 @@ def _coerce_str_list(value: Any) -> Any:
 
 class G2PSchemaCultivation:
 
-    is_plot_registered: Optional[bool] = None
+    is_plot_not_registered: Optional[bool] = None
     temporary_land_id: Optional[str] = None
     sync_id: Optional[str] = None
     start_gc: Optional[date] = None

@@ -10,29 +10,6 @@ _logger = logging.getLogger("g2p-register-domain-service")
 
 
 class G2PRegisterDomainServiceInfestation(G2PRegisterDomainService):
-    async def pre_approve(self, change_request, session) -> None:
-        rec_id = change_request.internal_record_id
-        try:
-            from openg2p_registry_core.services.g2p_register_change_request_service import G2PRegisterChangeRequestService
-            cr_service = G2PRegisterChangeRequestService.get_component() or G2PRegisterChangeRequestService()
-            payload_obj = await cr_service._get_change_request_payload(change_request.change_request_id, session)
-            if payload_obj and payload_obj.change_payload:
-                i_records = []
-                for item in payload_obj.change_payload:
-                    if isinstance(item, dict):
-                        rec = dict(item)
-                        if rec_id and not rec.get("link_internal_record_id"):
-                            rec["link_internal_record_id"] = rec_id
-                        i_records.append(rec)
-                if i_records:
-                    await self.validate_domain_attributes(i_records, session=session)
-        except Exception as e:
-            from openg2p_registry_core.errors import G2PRegistryException
-            if isinstance(e, G2PRegistryException):
-                raise
-            _logger.error("Error in Infestation pre_approve: %s", e)
-            raise
-
     async def validate_domain_attributes(self, records: list[dict], session=None, **kwargs):
         from .field_rules import validate_record_fields
         await validate_record_fields(records, table=True)
@@ -56,8 +33,8 @@ class G2PRegisterDomainServiceInfestation(G2PRegisterDomainService):
             self._validate_observation_date(record)
             self._validate_estimated_damage(record)
             compute_ec_date(record, "observation_date", "observation_date_ec")
-            from .domain_validation_utils import run_record_cross_validation
-            await run_record_cross_validation(self._validate_infestation_after_sowing, record, session)
+            if session:
+                await self._validate_infestation_after_sowing(record, session=session)
 
     async def _validate_infestation_after_sowing(self, record: dict, session) -> None:
         land_id = str(record.get("land_id") or "").strip()
@@ -83,7 +60,7 @@ class G2PRegisterDomainServiceInfestation(G2PRegisterDomainService):
         else:
             is_clustered = bool(record.get("cluster_name") and not record.get("commodity") and not record.get("crop_type_affected"))
 
-        commodity = record.get("commodity") or record.get("crop_type_affected")
+        commodity = record.get("commodity")
         from .domain_validation_utils import get_attribute_variants
         commodity_vars = get_attribute_variants(commodity, "CROP_COMMODITY") if commodity else []
 

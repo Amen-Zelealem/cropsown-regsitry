@@ -159,34 +159,31 @@ class G2PRegisterDomainServiceCultivationCluster(G2PRegisterDomainService):
                             total_cultivated_area += (as_float(row[2]) or 0.0)
 
         # 3. Validate match (if cultivation records exist)
-        # Land ID match between cultivation and cluster is optional:
-        # if cultivation_land_ids and str(cluster_land_id).strip() not in cultivation_land_ids:
-        #     validation_error(
-        #         f"Land ID '{cluster_land_id}' in Cultivation cluster does not match any Land ID specified in Cultivation / land preparation details."
-        #     )
+        if cultivation_land_ids and str(cluster_land_id).strip() not in cultivation_land_ids:
+            validation_error(
+                f"Land ID '{cluster_land_id}' in Cultivation cluster does not match any Land ID specified in Cultivation / land preparation details."
+            )
 
-        # Area validation only applies if cultivation cluster Land ID matches a cultivation Land ID
-        if str(cluster_land_id).strip() in cultivation_land_ids:
-            # If max_land_area was not provided in cultivation, fall back to land_area on cluster record
-            if max_land_area == 0.0:
-                max_land_area = as_float(record.get("land_area")) or 0.0
+        # If max_land_area was not provided in cultivation, fall back to land_area on cluster record
+        if max_land_area == 0.0:
+            max_land_area = as_float(record.get("land_area")) or 0.0
 
-            # Calculate remaining available land area for cluster (Option A)
-            remaining_land = max(0.0, max_land_area - total_cultivated_area) if max_land_area > 0 else 0.0
+        # Calculate remaining available land area for cluster (Option A)
+        remaining_land = max(0.0, max_land_area - total_cultivated_area) if max_land_area > 0 else 0.0
 
-            # 4. Validate Cultivation Cluster Area / Plan does not exceed remaining land area
-            cluster_area = as_float(record.get("cluster_area_hectare")) or as_float(record.get("cluster_plan"))
-            if cluster_area is not None and max_land_area > 0:
-                if cluster_area > remaining_land + 1e-6:
-                    if total_cultivated_area > 0:
-                        validation_error(
-                            f"Cultivation cluster area ({cluster_area:g} hectares) for Land ID '{cluster_land_id}' exceeds the remaining available land area ({remaining_land:g} hectares). "
-                            f"Total land area is {max_land_area:g} hectares and {total_cultivated_area:g} hectares is already cultivated."
-                        )
-                    else:
-                        validation_error(
-                            f"Cultivation cluster area ({cluster_area:g} hectares) for Land ID '{cluster_land_id}' exceeds Total land area ({max_land_area:g} hectares)."
-                        )
+        # 4. Validate Cultivation Cluster Area / Plan does not exceed remaining land area
+        cluster_area = as_float(record.get("cluster_area_hectare")) or as_float(record.get("cluster_plan"))
+        if cluster_area is not None and max_land_area > 0:
+            if cluster_area > remaining_land + 1e-6:
+                if total_cultivated_area > 0:
+                    validation_error(
+                        f"Cultivation cluster area ({cluster_area:g} hectares) for Land ID '{cluster_land_id}' exceeds the remaining available land area ({remaining_land:g} hectares). "
+                        f"Total land area is {max_land_area:g} hectares and {total_cultivated_area:g} hectares is already cultivated."
+                    )
+                else:
+                    validation_error(
+                        f"Cultivation cluster area ({cluster_area:g} hectares) for Land ID '{cluster_land_id}' exceeds Total land area ({max_land_area:g} hectares)."
+                    )
 
     def construct_search_text(self, payload: dict, extra: list[str] = None) -> str:
         _logger.info("Constructing search text for cluster")
