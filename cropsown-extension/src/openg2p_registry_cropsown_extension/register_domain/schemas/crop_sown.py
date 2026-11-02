@@ -91,8 +91,9 @@ class G2PSchemaCropSown:
     @classmethod
     def validate_land_id(cls, v: Optional[str]) -> Optional[str]:
         if v is not None and str(v).strip() != "":
-            if " " in str(v):
-                raise ValueError("Land ID must not contain spaces or gaps (e.g. '12345')")
+            import re
+            if not re.fullmatch(r"^[a-zA-Z0-9/-]+$", str(v).strip()):
+                raise ValueError("Land ID: enter letters, numbers, hyphens (-) or slashes (/) only. Other special characters and spaces are not allowed.")
         return v
 
 

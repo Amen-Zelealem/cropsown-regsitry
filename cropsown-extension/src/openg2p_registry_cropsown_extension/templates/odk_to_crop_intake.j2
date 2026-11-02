@@ -229,6 +229,45 @@
   "root_rot": "CROP_DISEASE_ROOT_ROT"
 } %}
 
+{% set pest_map = {
+  "fall_armyworm": "AGENT_FALL_ARMYWORM",
+  "desert_locust": "AGENT_DESERT_LOCUST",
+  "stalk_borer": "AGENT_STALK_BORER",
+  "aphids": "AGENT_APHIDS",
+  "armyworm": "AGENT_FALL_ARMYWORM",
+  "stem_borer": "AGENT_STALK_BORER"
+} %}
+
+{% set pest_control_method_map = {
+  "ctrl_chemical": "CTRL_CHEMICAL",
+  "ctrl_biological": "CTRL_BIOLOGICAL",
+  "ctrl_cultural": "CTRL_CULTURAL",
+  "ctrl_none": "CTRL_NONE"
+} %}
+
+{% set weed_type_map = {
+  "annual_weed": "WEED_ANNUAL_WEED",
+  "biennial_weed": "WEED_BIENNIAL_WEED",
+  "perennial_weed": "WEED_PERENNIAL_WEED",
+  "kharif_summer": "WEED_KHARIF_SUMMER",
+  "rabi_winter": "WEED_RABI_WINTER",
+  "year_round": "WEED_YEAR_ROUND",
+  "grassy": "WEED_GRASSY",
+  "sedge": "WEED_SEDGE",
+  "broadleaf": "WEED_BROADLEAF",
+  "aquatic": "WEED_AQUATIC",
+  "terrestrial": "WEED_TERRESTRIAL",
+  "parasitic": "WEED_PARASITIC",
+  "epiphytic": "WEED_EPIPHYTIC",
+  "noxious": "WEED_NOXIOUS",
+  "poisonous": "WEED_POISONOUS",
+  "allelopathic": "WEED_ALLELOPATHIC",
+  "invasive": "WEED_INVASIVE",
+  "climbing": "WEED_CLIMBING",
+  "rosette": "WEED_ROSETTE",
+  "creeping": "WEED_CREEPING"
+} %}
+
 {% set farmer_id = d.get('farmer_identity') or {} %}
 {% set production_season_info = d.get('production_season_info') or d.get('season_details') or {} %}
 {% set farmer_plot = d.get('farmer_plot') or {} %}
@@ -349,7 +388,7 @@
     {% set p_season = season_map.get(raw_ps, raw_ps | upper) %}
     {% set raw_plan_dt = cd.get('collected_gc') or sub_dt %}
     {% set plan_dt = p.get('start_gc') if (raw_plan_dt > sub_dt and p.get('start_gc')) else raw_plan_dt %}
-    {% set is_plot_unreg = 'true' if (p.get('is_plot_not_registered') == 'yes') else 'false' %}
+    {% set is_plot_reg = 'true' if (p.get('is_plot_registered') == 'yes' or p.get('is_plot_registered') == true or p.get('is_plot_not_registered') == 'no') else 'false' %}
     {% set raw_p_cat = (p.get('land_category') or p.get('plot_category') or '') | lower %}
     {% set p_cat = plot_cat_map.get(raw_p_cat, '') %}
     {% set raw_own = (p.get('ownership_type') or '') | lower %}
@@ -402,7 +441,7 @@
     {% set raw_wfreq = (p.get('frequency') or p.get('water_source_frequency') or '') | lower %}
     {% set wfreq_val = water_freq_map.get(raw_wfreq, p.get('frequency') or p.get('water_source_frequency') or '') %}
     {
-      "is_plot_not_registered": {{ is_plot_unreg }},
+      "is_plot_registered": {{ is_plot_reg }},
       "land_id": "{{ p.get('land_info_id') or '' }}",
       "plot_category": "{{ p_cat }}",
       "ownership_type": "{{ own_val }}",
@@ -416,10 +455,10 @@
       "season": "{{ p_season }}",
       "start_gc": "{{ p.get('start_gc') or '' }}",
       "end_gc": "{{ p.get('end_gc') or '' }}",
-      "start_month": {{ (p.get('start_month') or 0) | int }},
-      "start_day": {{ (p.get('start_day') or 0) | int }},
-      "end_month": {{ (p.get('end_month') or 0) | int }},
-      "end_day": {{ (p.get('end_day') or 0) | int }},
+      "start_month": {{ p.get('start_month') | int if (p.get('start_month') is not none and str(p.get('start_month')).strip() != '') else 'null' }},
+      "start_day": {{ p.get('start_day') | int if (p.get('start_day') is not none and str(p.get('start_day')).strip() != '') else 'null' }},
+      "end_month": {{ p.get('end_month') | int if (p.get('end_month') is not none and str(p.get('end_month')).strip() != '') else 'null' }},
+      "end_day": {{ p.get('end_day') | int if (p.get('end_day') is not none and str(p.get('end_day')).strip() != '') else 'null' }},
       "commodity": "{{ crop_val }}",
       "crop_category": "{{ ccat_val }}",
       "local_name": "{{ cd.get('local_name') or '' }}",
@@ -489,10 +528,10 @@
       "season": "{{ c_season }}",
       "start_gc": "{{ c.get('cluster_start_gc') or '' }}",
       "end_gc": "{{ c.get('cluster_end_gc') or '' }}",
-      "start_month": {{ (c.get('cluster_start_month') or 0) | int }},
-      "start_day": {{ (c.get('cluster_start_day') or 0) | int }},
-      "end_month": {{ (c.get('cluster_end_month') or 0) | int }},
-      "end_day": {{ (c.get('cluster_end_day') or 0) | int }},
+      "start_month": {{ c.get('cluster_start_month') | int if (c.get('cluster_start_month') is not none and str(c.get('cluster_start_month')).strip() != '') else 'null' }},
+      "start_day": {{ c.get('cluster_start_day') | int if (c.get('cluster_start_day') is not none and str(c.get('cluster_start_day')).strip() != '') else 'null' }},
+      "end_month": {{ c.get('cluster_end_month') | int if (c.get('cluster_end_month') is not none and str(c.get('cluster_end_month')).strip() != '') else 'null' }},
+      "end_day": {{ c.get('cluster_end_day') | int if (c.get('cluster_end_day') is not none and str(c.get('cluster_end_day')).strip() != '') else 'null' }},
       "region": "{{ c_reg }}",
       "zone": "{{ c_zone }}",
       "woreda": "{{ c_woreda }}",
@@ -573,7 +612,7 @@
     {% set prep_methods_str = prep_methods_clean | join(',') %}
     {% set raw_cult_dt = cd.get('collected_gc') or sub_dt %}
     {% set cult_dt = p.get('start_gc') if (raw_cult_dt > sub_dt and p.get('start_gc')) else (sub_dt if raw_cult_dt > sub_dt else raw_cult_dt) %}
-    {% set is_plot_unreg = 'true' if (p.get('is_plot_not_registered') == 'yes') else 'false' %}
+    {% set is_plot_reg = 'true' if (p.get('is_plot_registered') == 'yes' or p.get('is_plot_registered') == true or p.get('is_plot_not_registered') == 'no') else 'false' %}
     {% set raw_crop = (cd.get('crop_name_id') or '') | lower %}
     {% set crop_val = crop_map.get(raw_crop, cd.get('crop_name_id') or '') %}
     {% set raw_ccat = (cd.get('crop_category_id') or '') | lower %}
@@ -591,16 +630,16 @@
     {% set raw_wfreq = (p.get('frequency') or p.get('water_source_frequency') or '') | lower %}
     {% set wfreq_val = water_freq_map.get(raw_wfreq, p.get('frequency') or p.get('water_source_frequency') or '') %}
     {
-      "is_plot_not_registered": {{ is_plot_unreg }},
+      "is_plot_registered": {{ is_plot_reg }},
       "land_id": "{{ p.get('land_info_id') or '' }}",
       "land_area": {{ (p.get('land_area') or 0.0) | float }},
       "season": "{{ p_season }}",
       "start_gc": "{{ p.get('start_gc') or '' }}",
       "end_gc": "{{ p.get('end_gc') or '' }}",
-      "start_month": {{ (p.get('start_month') or 0) | int }},
-      "start_day": {{ (p.get('start_day') or 0) | int }},
-      "end_month": {{ (p.get('end_month') or 0) | int }},
-      "end_day": {{ (p.get('end_day') or 0) | int }},
+      "start_month": {{ p.get('start_month') | int if (p.get('start_month') is not none and str(p.get('start_month')).strip() != '') else 'null' }},
+      "start_day": {{ p.get('start_day') | int if (p.get('start_day') is not none and str(p.get('start_day')).strip() != '') else 'null' }},
+      "end_month": {{ p.get('end_month') | int if (p.get('end_month') is not none and str(p.get('end_month')).strip() != '') else 'null' }},
+      "end_day": {{ p.get('end_day') | int if (p.get('end_day') is not none and str(p.get('end_day')).strip() != '') else 'null' }},
       "commodity": "{{ crop_val }}",
       "crop_category": "{{ ccat_val }}",
       "local_name": "{{ cd.get('local_name') or '' }}",
@@ -683,10 +722,10 @@
       "season": "{{ c_season }}",
       "start_gc": "{{ c.get('cluster_start_gc') or '' }}",
       "end_gc": "{{ c.get('cluster_end_gc') or '' }}",
-      "start_month": {{ (c.get('cluster_start_month') or 0) | int }},
-      "start_day": {{ (c.get('cluster_start_day') or 0) | int }},
-      "end_month": {{ (c.get('cluster_end_month') or 0) | int }},
-      "end_day": {{ (c.get('cluster_end_day') or 0) | int }},
+      "start_month": {{ c.get('cluster_start_month') | int if (c.get('cluster_start_month') is not none and str(c.get('cluster_start_month')).strip() != '') else 'null' }},
+      "start_day": {{ c.get('cluster_start_day') | int if (c.get('cluster_start_day') is not none and str(c.get('cluster_start_day')).strip() != '') else 'null' }},
+      "end_month": {{ c.get('cluster_end_month') | int if (c.get('cluster_end_month') is not none and str(c.get('cluster_end_month')).strip() != '') else 'null' }},
+      "end_day": {{ c.get('cluster_end_day') | int if (c.get('cluster_end_day') is not none and str(c.get('cluster_end_day')).strip() != '') else 'null' }},
       "region": "{{ c_reg }}",
       "zone": "{{ c_zone }}",
       "woreda": "{{ c_woreda }}",
@@ -820,6 +859,12 @@
     {% set itype_val = itype_vals | join(',') %}
     {% set raw_dtype = (dis.get('disease_type') or '') | lower %}
     {% set dtype_val = disease_type_map.get(raw_dtype, (dis.get('disease_type') or '') | upper) %}
+    {% set raw_pname = (po.get('pest_name') or '') | lower %}
+    {% set pname_val = pest_map.get(raw_pname, po.get('pest_name') or '') %}
+    {% set raw_pmeth = (po.get('pest_pesticide_method') or '') | lower %}
+    {% set pmeth_val = pest_control_method_map.get(raw_pmeth, po.get('pest_pesticide_method') or '') %}
+    {% set raw_wtype = (wo.get('weed_type') or '') | lower %}
+    {% set wtype_val = weed_type_map.get(raw_wtype, (wo.get('weed_type') or '') | upper) %}
     {
       "land_id": "{{ inf.get('infestation_land_info_id') or '' }}",
       "commodity": "{{ crop_val }}",
@@ -828,16 +873,16 @@
       "cluster_name": "{{ inf.get('infestation_fpc_name') or inf.get('cluster_name') or '' }}",
       "infestation_type": "{{ itype_val }}",
       "severity_level": "{{ (inf.get('security_level') or inf.get('severity_level') or '') | upper }}",
-      "estimated_damage_pct": {{ (inf.get('estimated_damage') or 0) | float }},
+      "estimated_damage_pct": {{ inf.get('estimated_damage') | tojson if inf.get('estimated_damage') else 'null' }},
       "observation_date": "{{ inf.get('observation_date') or sub_dt }}",
       "observation_date_ec": "{{ inf.get('ec_date_message') or '' }}",
       "pest_type": "{{ po.get('pest_type') or '' }}",
-      "pest_name": "{{ po.get('pest_name') or '' }}",
-      "pesticide_method": "{{ po.get('pest_pesticide_method') or '' }}",
+      "pest_name": "{{ pname_val }}",
+      "pesticide_method": "{{ pmeth_val }}",
       "pesticide_type": "{{ po.get('pesticide_type') or '' }}",
       "pesticide_name": "{{ po.get('pesticide_name') or '' }}",
       "pesticide_frequency": "{{ po.get('pest_frequency_of_application') or po.get('pest_pesticide_frequency') or '' }}",
-      "weed_type": "{{ wo.get('weed_type') or '' }}",
+      "weed_type": "{{ wtype_val }}",
       "weed_name": "{{ wo.get('weed_name_id') or '' }}",
       "weed_control_method": "{{ wo.get('pesticide_method') or '' }}",
       "weedicide_type": "{{ wo.get('weedicide_type') or '' }}",

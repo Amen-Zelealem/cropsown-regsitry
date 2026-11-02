@@ -164,3 +164,73 @@ class AddOnlyMigrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             [column["name"] for column in await self.columns("atomic")], ["id"]
         )
+
+    async def test_native_schema_compat_converts_land_prep_method_to_jsonb(self):
+        compat = importlib.import_module(PACKAGE + ".schema_compat")
+        async with self.engine.begin() as conn:
+            await conn.execute(
+                text(
+                    'CREATE TABLE "' + self.schema + '"."g2p_register_cultivations" ('
+                    '  internal_record_id VARCHAR PRIMARY KEY,'
+                    '  land_prep_method VARCHAR'
+                    ')'
+                )
+            )
+            await conn.execute(
+                text(
+                    'INSERT INTO "' + self.schema + '"."g2p_register_cultivations" '
+                    'VALUES (\'rec-1\', \'LAND_PREP_METHOD_SHILSHALO,LAND_PREP_METHOD_MANUAL_DIGGING\')'
+                )
+            )
+
+        cols_before = {c["name"]: c for c in await self.columns("g2p_register_cultivations")}
+        self.assertIn("land_prep_method", cols_before)
+        self.assertNotEqual(cols_before["land_prep_method"]["type"].__class__.__name__.lower(), "jsonb")
+
+        await compat.migrate_existing_schema(self.engine)
+
+        cols_after = {c["name"]: c for c in await self.columns("g2p_register_cultivations")}
+        self.assertEqual(cols_after["land_prep_method"]["type"].__class__.__name__.lower(), "jsonb")
+
+        async with self.engine.connect() as conn:
+            row = (
+                await conn.execute(
+                    text('SELECT land_prep_method FROM "' + self.schema + '"."g2p_register_cultivations"')
+                )
+            ).mappings().one()
+            self.assertEqual(
+                row["land_prep_method"],
+                ["LAND_PREP_METHOD_SHILSHALO", "LAND_PREP_METHOD_MANUAL_DIGGING"]
+            )
+
+    def test_reference_snapshot_matches_land_prep_method_json_schema(self):
+        import json
+        from pathlib import Path
+        cur = Path(__file__).resolve()
+        ref_path = None
+        for parent in cur.parents:
+            candidate = parent / "reference" / "new-dev" / "metadata.json"
+            if candidate.exists():
+                ref_path = candidate
+                break
+        if not ref_path or not ref_path.exists():
+            return
+        data = json.loads(ref_path.read_text(encoding="utf-8"))
+        # Verify land_prep_method data_type in cultivation schema snapshot
+        found = False
+        def check_schemas(node):
+            nonlocal found
+            if isinstance(node, dict):
+                if node.get("field_name") == "land_prep_method" and "data_type" in node:
+                    self.assertEqual(node["data_type"], "json")
+                    found = True
+                for v in node.values():
+                    check_schemas(v)
+            elif isinstance(node, list):
+                for item in node:
+                    check_schemas(item)
+
+        check_schemas(data)
+        self.assertTrue(found, "Expected land_prep_method with data_type in reference snapshot")
+
+

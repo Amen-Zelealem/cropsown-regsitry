@@ -289,7 +289,7 @@ class ReadableListsReplayTests(unittest.IsolatedAsyncioTestCase):
         sections, english, forms, definitions = await self.state()
         shown = dict(english.domain_translation)
 
-        assert self.labels(sections, "is_plot_not_registered") == ["Plot is not yet registered"]
+        assert self.labels(sections, "is_plot_registered") == ["Is Plot registered"]
         assert self.labels(sections, "water_source_method") == ["Water application method"]
         assert self.labels(sections, "water_source_frequency") == ["Watering frequency"]
         assert self.labels(sections, "reference") == ["Cluster reference"]

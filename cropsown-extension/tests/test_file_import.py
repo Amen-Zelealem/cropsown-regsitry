@@ -231,13 +231,13 @@ def test_minimal_rows_render_what_the_odk_template_renders_for_the_same_intake()
 
 def test_planning_row_maps_columns_to_the_sections_of_the_form():
     result = render('planning', {**BASE, 'land_id': 'L1', 'commodity': 'CROP_TEFF', 'land_area': '1.5',
-                                 'planned_labor': '4.0', 'is_plot_not_registered': 'No', 'cropping_system': 'mono_cropping',
+                                 'planned_labor': '4.0', 'is_plot_registered': 'Yes', 'cropping_system': 'mono_cropping',
                                  'start_gc': '2026-06-01 00:00:00', 'region': 'et04', 'zone': 'ET0404',
                                  'latitude': '9.0', 'longitude': '38.7', 'unknown_column': 'ignored'})
     assert result['crop_farmer_lookup'][0]['fayda_fan_id'] == '0000123456789012'
     assert result['crop_farmer_lookup'][0]['fayda_fin'] is None
     assert result['cs_planning_details'] == [{
-        'land_id': 'L1', 'commodity': 'CROP_TEFF', 'land_area': 1.5, 'planned_labor': 4, 'is_plot_not_registered': False,
+        'land_id': 'L1', 'commodity': 'CROP_TEFF', 'land_area': 1.5, 'planned_labor': 4, 'is_plot_registered': True,
         'cropping_system': 'MONO_CROPPING', 'start_gc': '2026-06-01', 'region': 'ET04', 'zone': 'ET0404',
         'gps_coordinate': '9.0, 38.7', 'season': 'SEASON_MEHER'}]
     location = result['cs_cropsown_location'][0]
@@ -271,7 +271,7 @@ def test_sowing_and_harvest_cluster_status_are_lists_and_headers_ignore_case():
     ('planning', {'land_area': 'many'}, 'column land_area must be a number'),
     ('planning', {'planned_labor': 'x'}, 'column planned_labor must be a whole number'),
     ('planning', {'start_gc': '01/06/2026'}, 'column start_gc must be a date'),
-    ('planning', {'is_plot_not_registered': 'maybe'}, 'column is_plot_not_registered must be yes or no'),
+    ('planning', {'is_plot_registered': 'maybe'}, 'column is_plot_registered must be yes or no'),
     ('planning', {'seed_class': 'wild'}, 'column seed_class must be one of LOCAL, IMPROVED'),
     ('sowing', {'cluster_status': 'FIELD'}, 'column cluster_status takes CLUSTER and INDEPENDENT'),
 ])
