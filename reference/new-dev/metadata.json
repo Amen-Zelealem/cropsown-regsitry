@@ -971,33 +971,16 @@
                             "widget-readonly": false,
                             "widget-data-path": "water_source_frequency",
                             "widget-data-source": {
-                              "type": "static",
-                              "options": [
-                                {
-                                  "label": "Daily",
-                                  "value": "DAILY"
-                                },
-                                {
-                                  "label": "Weekly",
-                                  "value": "WEEKLY"
-                                },
-                                {
-                                  "label": "Bi-weekly",
-                                  "value": "BIWEEKLY"
-                                },
-                                {
-                                  "label": "Monthly",
-                                  "value": "MONTHLY"
-                                },
-                                {
-                                  "label": "As Needed",
-                                  "value": "AS_NEEDED"
-                                },
-                                {
-                                  "label": "Other",
-                                  "value": "OTHER"
-                                }
-                              ]
+                              "type": "api",
+                              "method": "POST",
+                              "params": {
+                                "page_size": 200,
+                                "attribute_id": "WATER_SOURCE_FREQUENCY"
+                              },
+                              "service": "attributes",
+                              "endpoint": "values",
+                              "labelKey": "value_display",
+                              "valueKey": "value_id"
                             }
                           },
                           {
@@ -1915,33 +1898,16 @@
                             "widget-readonly": false,
                             "widget-data-path": "water_source_frequency",
                             "widget-data-source": {
-                              "type": "static",
-                              "options": [
-                                {
-                                  "label": "Daily",
-                                  "value": "DAILY"
-                                },
-                                {
-                                  "label": "Weekly",
-                                  "value": "WEEKLY"
-                                },
-                                {
-                                  "label": "Bi-weekly",
-                                  "value": "BIWEEKLY"
-                                },
-                                {
-                                  "label": "Monthly",
-                                  "value": "MONTHLY"
-                                },
-                                {
-                                  "label": "As Needed",
-                                  "value": "AS_NEEDED"
-                                },
-                                {
-                                  "label": "Other",
-                                  "value": "OTHER"
-                                }
-                              ]
+                              "type": "api",
+                              "method": "POST",
+                              "params": {
+                                "page_size": 200,
+                                "attribute_id": "WATER_SOURCE_FREQUENCY"
+                              },
+                              "service": "attributes",
+                              "endpoint": "values",
+                              "labelKey": "value_display",
+                              "valueKey": "value_id"
                             }
                           },
                           {
@@ -2346,53 +2312,16 @@
                             "widget-readonly": false,
                             "widget-data-path": "cultivation_type",
                             "widget-data-source": {
-                              "type": "static",
-                              "options": [
-                                {
-                                  "label": "Oxen Tillage",
-                                  "value": "OXEN_TILLAGE"
-                                },
-                                {
-                                  "label": "Equine/Other Animals",
-                                  "value": "EQUINE_OTHER"
-                                },
-                                {
-                                  "label": "Tractor Ploughing",
-                                  "value": "TRACTOR_PLOUGHING"
-                                },
-                                {
-                                  "label": "Power Tiller",
-                                  "value": "POWER_TILLER"
-                                },
-                                {
-                                  "label": "Combine Harvester",
-                                  "value": "COMBINE_HARVESTER"
-                                },
-                                {
-                                  "label": "Thrashing Machine",
-                                  "value": "THRASHING_MACHINE"
-                                },
-                                {
-                                  "label": "Family Labor",
-                                  "value": "FAMILY_LABOR"
-                                },
-                                {
-                                  "label": "Debo / Jigi",
-                                  "value": "DEBO_JIGI"
-                                },
-                                {
-                                  "label": "Hired Labor",
-                                  "value": "HIRED_LABOR"
-                                },
-                                {
-                                  "label": "Tractor Primary Tillage + Oxen",
-                                  "value": "TRACTOR_OXEN"
-                                },
-                                {
-                                  "label": "Oxen Ploughing + Manual",
-                                  "value": "OXEN_MANUAL"
-                                }
-                              ]
+                              "type": "api",
+                              "method": "POST",
+                              "params": {
+                                "page_size": 200,
+                                "attribute_id": "MACHINERY"
+                              },
+                              "service": "attributes",
+                              "endpoint": "values",
+                              "labelKey": "value_display",
+                              "valueKey": "value_id"
                             }
                           },
                           {
@@ -2587,33 +2516,16 @@
                             "widget-readonly": false,
                             "widget-data-path": "water_source_frequency",
                             "widget-data-source": {
-                              "type": "static",
-                              "options": [
-                                {
-                                  "label": "Daily",
-                                  "value": "DAILY"
-                                },
-                                {
-                                  "label": "Weekly",
-                                  "value": "WEEKLY"
-                                },
-                                {
-                                  "label": "Bi-weekly",
-                                  "value": "BIWEEKLY"
-                                },
-                                {
-                                  "label": "Monthly",
-                                  "value": "MONTHLY"
-                                },
-                                {
-                                  "label": "As Needed",
-                                  "value": "AS_NEEDED"
-                                },
-                                {
-                                  "label": "Other",
-                                  "value": "OTHER"
-                                }
-                              ]
+                              "type": "api",
+                              "method": "POST",
+                              "params": {
+                                "page_size": 200,
+                                "attribute_id": "WATER_SOURCE_FREQUENCY"
+                              },
+                              "service": "attributes",
+                              "endpoint": "values",
+                              "labelKey": "value_display",
+                              "valueKey": "value_id"
                             }
                           },
                           {
@@ -3335,17 +3247,16 @@
                             "widget-readonly": false,
                             "widget-data-path": "cluster_status",
                             "widget-data-source": {
-                              "type": "static",
-                              "options": [
-                                {
-                                  "label": "Clustered",
-                                  "value": "CLUSTER"
-                                },
-                                {
-                                  "label": "Independent",
-                                  "value": "INDEPENDENT"
-                                }
-                              ]
+                              "type": "api",
+                              "method": "POST",
+                              "params": {
+                                "page_size": 200,
+                                "attribute_id": "CLUSTER_STATUS"
+                              },
+                              "service": "attributes",
+                              "endpoint": "values",
+                              "labelKey": "value_display",
+                              "valueKey": "value_id"
                             }
                           },
                           {
@@ -3359,7 +3270,7 @@
                               "action": "show",
                               "condition": {
                                 "field": "cluster_status",
-                                "value": "CLUSTER",
+                                "value": "CLUSTER_STATUS_CLUSTERED",
                                 "operator": "contains"
                               }
                             }
@@ -3387,7 +3298,7 @@
                               "action": "show",
                               "condition": {
                                 "field": "cluster_status",
-                                "value": "INDEPENDENT",
+                                "value": "CLUSTER_STATUS_INDEPENDENT",
                                 "operator": "contains"
                               }
                             }
@@ -4508,21 +4419,16 @@
                             "widget-readonly": false,
                             "widget-data-path": "plot_category",
                             "widget-data-source": {
-                              "type": "static",
-                              "options": [
-                                {
-                                  "label": "Annual Crop",
-                                  "value": "ANNUAL_CROP"
-                                },
-                                {
-                                  "label": "Perennial Crop",
-                                  "value": "PERENNIAL_CROP"
-                                },
-                                {
-                                  "label": "Biennial Crop",
-                                  "value": "BIENNIAL_CROP"
-                                }
-                              ]
+                              "type": "api",
+                              "method": "POST",
+                              "params": {
+                                "page_size": 200,
+                                "attribute_id": "PLOT_CATEGORY"
+                              },
+                              "service": "attributes",
+                              "endpoint": "values",
+                              "labelKey": "value_display",
+                              "valueKey": "value_id"
                             }
                           },
                           {
@@ -5116,33 +5022,16 @@
                             "widget-readonly": false,
                             "widget-data-path": "water_source_frequency",
                             "widget-data-source": {
-                              "type": "static",
-                              "options": [
-                                {
-                                  "label": "Daily",
-                                  "value": "DAILY"
-                                },
-                                {
-                                  "label": "Weekly",
-                                  "value": "WEEKLY"
-                                },
-                                {
-                                  "label": "Bi-weekly",
-                                  "value": "BIWEEKLY"
-                                },
-                                {
-                                  "label": "Monthly",
-                                  "value": "MONTHLY"
-                                },
-                                {
-                                  "label": "As Needed",
-                                  "value": "AS_NEEDED"
-                                },
-                                {
-                                  "label": "Other",
-                                  "value": "OTHER"
-                                }
-                              ]
+                              "type": "api",
+                              "method": "POST",
+                              "params": {
+                                "page_size": 200,
+                                "attribute_id": "WATER_SOURCE_FREQUENCY"
+                              },
+                              "service": "attributes",
+                              "endpoint": "values",
+                              "labelKey": "value_display",
+                              "valueKey": "value_id"
                             }
                           },
                           {
