@@ -147,7 +147,7 @@ def main(domain, pipeline=False):
         if len(popup) != 4 or any(case.find("skipped") is not None for case in popup):
             raise RuntimeError("All four popup metadata regressions must execute")
         required_executed = {
-            "NativeReferenceTests":34, "NativeNotificationTests":25,
+            "NativeReferenceTests":34, "NativeNotificationTests":35,
             "OnboardingTests":15, "PendingLookupTests":4, "WorkerHeldTests":2,
             "PopupIdentityMetadataTests":3, "AddOnlyMigrationTests":3,
             "NativeSectionTests" if domain == "cropsown" else "IntakeIdentitySectionTests":1,

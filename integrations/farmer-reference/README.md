@@ -11,8 +11,14 @@ Use the standard outgestion and ingestion pipelines. Source approval publishes
 through native outgestion, WebSub/Kafka and the independently operated receiving
 connector. The configured native key paths retain signed payload verification.
 The first classification pass resolves the Farmer's native functional ID; the
-second selects the existing Farmer identity section only for UPDATE. There is
-no matching ADD form, so unknown Farmers cannot onboard through notifications.
+second selects the existing Farmer identity section for UPDATE. A notice for a Farmer
+with no live record classifies as ADD onto the pipeline-only intake form
+`farmer_registry_notice_to_farmer_reference_form` (the same identity section, nothing
+else; zz-oan/97_farmer_notice_first_reference.sql). The ingest worker saves the Farmer ID
+and Fayda ID as a Farmer intake, and the registered intake service, instead of starting
+an approval, repeats the signed, consented lookup and queues the Farmer reference ADD
+for the normal two-stage approval; the intake is closed as cancelled with the change
+request id in its remarks, so no approval, deduplication or register write follows from it.
 
 The registered native enricher validates the event type, event ID and string
 Farmer ID plus Fayda ID pair (the 16-digit FAN or the 12-digit FIN, whichever the
@@ -21,7 +27,11 @@ only those fields; notification demographics never become trusted data. The
 registered CR service requires the configured source partner and a matching
 approved local reference and identity pair, then fetches the current signed,
 consented authoritative source. It creates/reuses the versioned local UPDATE CR
-and durable AWE outbox. Approved local values remain until native target approval.
+and durable AWE outbox. When the service receives a notice for a Farmer that has
+no approved reference, it takes the Farmer ID and Fayda ID pair of the notice,
+does the same signed, consented lookup as a typed Farmer ID, and queues the
+first reference ADD CR for the normal two-stage approval; a repeat notice, or an
+update before that ADD is approved, returns the same pending CR. Approved local values remain until native target approval.
 The receiving registry's existing approved Woreda selects the reviewer; proposed
 geography cannot select its own reviewer. Domain intake approvals are not replayed.
 

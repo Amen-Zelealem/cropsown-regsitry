@@ -140,8 +140,6 @@ MESSAGES = {
         "The Farmer Registry sent two different versions of this farmer's details. Nothing was changed. Tell the administrator",
     "FARMER_REFERENCE_STALE_SOURCE_VERSION":
         "The Farmer Registry sent an older version of this farmer's details. Nothing was changed. Try again later",
-    "FARMER_REFERENCE_UNREFERENCED_NOTIFICATION":
-        "A farmer update arrived for a farmer this registry does not hold, so it was ignored",
     "FARMER_REFERENCE_UNSUPPORTED_ACTION":
         "This kind of farmer request is not supported. Tell the administrator",
     "FARMER_REFERENCE_UNSUPPORTED_DATABASE":

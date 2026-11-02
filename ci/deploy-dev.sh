@@ -211,7 +211,7 @@ fi
 SETS=()
 set_image() {
   SETS+=(--set "registry.$1.image.repository=${ECR_REGISTRY}/${ECR_BASE}/$2"
-         --set "registry.$1.image.tag=${TAG}")
+         --set-string "registry.$1.image.tag=${TAG}")
 }
 set_image staffApi     staff-api
 set_image partnerApi   partner-api

@@ -300,7 +300,8 @@ class ReadableListsReplayTests(unittest.IsolatedAsyncioTestCase):
 
         every = {widget["widget-label"] for section in sections for widget in self.widgets(section)}
         assert not every & {"Fayda FAN (16 digits)", "Fayda ID (FAN)", "Farmer reference", "Fayda FIN (from verification)"}
-        assert {form.form_id: form.form_mnemonic for form in forms} == INTAKE_FORMS
+        # The pipeline-only Farmer notice form is not one of the staff-facing crop intakes.
+        assert {form.form_id: form.form_mnemonic for form in forms if not form.used_only_in_ingestion_pipeline} == INTAKE_FORMS
         assert {d.register_id: d.register_subject for d in definitions}[CROP] == "Crop sown registry"
         assert shown["FEMALE"] == "Female"
         assert shown["fayda_fan_id"] == "Fayda FAN ID"

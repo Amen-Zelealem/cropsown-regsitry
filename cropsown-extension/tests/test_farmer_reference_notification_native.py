@@ -9,7 +9,7 @@ if os.environ.get("FARMER_TEST_DATABASE_URL"):
     native=importlib.import_module("openg2p_registry_extensions.farmer_reference.native")
     ledger=importlib.import_module("openg2p_registry_extensions.farmer_reference.models")
     Error=importlib.import_module("openg2p_registry_extensions.farmer_reference.profile").FarmerReferenceError
-    from openg2p_registry_core.models import G2PRegisterChangeRequestPayload
+    from openg2p_registry_core.models import G2PRegisterChangeRequest, G2PRegisterChangeRequestPayload
 
 
 class NativeNotificationTests(NativeReferenceTests):
@@ -63,16 +63,78 @@ class NativeNotificationTests(NativeReferenceTests):
                 lookup_factory.assert_not_called()
                 self.assertEqual(len((await session.execute(select(ledger.FarmerReferenceRequest))).scalars().all()),1)
 
-    async def test_notification_for_unreferenced_farmer_cannot_onboard(self):
+    def _first_notice_client(self, **lookup):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+        return SimpleNamespace(config=SimpleNamespace(source_id=self.snapshot.source_system),
+            lookup=AsyncMock(**({"return_value": self.snapshot} | lookup)))
+
+    async def _deliver_first_notice(self, session, client, local_id="unknown-local", **changes):
         from unittest.mock import patch
-        with patch.dict(os.environ,{"COSS_FARMER_SOURCE_PARTNER_ID":"synthetic-source-partner"}), patch.object(native,"configured_lookup") as lookup_factory:
-            async with self.sessions.begin() as session:
-                with self.assertRaisesRegex(Error,"UNREFERENCED_NOTIFICATION"):
-                    await native.G2PChangeRequestWorkerService.get_component().create_change_request(
-                        self._notification_payload("unknown-local"),session,
-                        source_partner_id="synthetic-source-partner",change_request_source=native.INGESTION_PIPELINE_SOURCE)
-                lookup_factory.assert_not_called()
-                self.assertEqual(len((await session.execute(select(ledger.FarmerReference))).scalars().all()),0)
+        with patch.dict(os.environ,{"COSS_FARMER_SOURCE_PARTNER_ID":"synthetic-source-partner"}),patch.object(native,"configured_lookup",return_value=client):
+            return await native.G2PChangeRequestWorkerService.get_component().create_change_request(
+                self._notification_payload(local_id,**changes),session,source_partner_id="synthetic-source-partner",
+                change_request_source=native.INGESTION_PIPELINE_SOURCE)
+
+    async def test_notification_for_unreferenced_farmer_queues_the_first_reference_add(self):
+        client=self._first_notice_client()
+        async with self.sessions.begin() as session:
+            cr=await self._deliver_first_notice(session,client)
+            self.assertEqual(client.lookup.await_args.args,(self.snapshot.profile["farmer_id"],self.snapshot.profile["fayda_fan_id"]))
+            reference=(await session.execute(select(ledger.FarmerReference))).scalar_one()
+            request=(await session.execute(select(ledger.FarmerReferenceRequest))).scalar_one()
+            self.assertEqual((reference.state,request.action,request.state),("PENDING","ADD","PENDING"))
+            self.assertEqual(request.native_cr_id,cr.change_request_id)
+            self.assertEqual(cr.approval_status,"PENDING")
+            self.assertEqual(cr.internal_record_id,reference.local_farmer_id)
+            body=await session.get(G2PRegisterChangeRequestPayload,cr.change_request_id)
+            # Values come from the signed lookup, never from the notice.
+            self.assertEqual(body.change_payload[0]["first_name"],"Verified")
+            self.assertEqual(body.change_payload[0]["edit_action"],"ADD")
+            self.assertIsNone(await session.get(native.domain_models().G2PRegisterFarmer,reference.local_farmer_id))
+            self.assertEqual(len((await session.execute(select(ledger.FarmerWorkflowOutbox))).scalars().all()),1)
+
+    async def test_notification_repeat_delivery_keeps_one_pending_add(self):
+        client=self._first_notice_client()
+        async with self.sessions.begin() as session:
+            first=await self._deliver_first_notice(session,client)
+            second=await self._deliver_first_notice(session,client,local_id="another-local-id")
+            self.assertEqual(first.change_request_id,second.change_request_id)
+            self.assertEqual(client.lookup.await_count,1)
+            self.assertEqual(len((await session.execute(select(ledger.FarmerReference))).scalars().all()),1)
+            self.assertEqual(len((await session.execute(select(ledger.FarmerReferenceRequest))).scalars().all()),1)
+
+    async def test_notification_for_unreferenced_farmer_with_lookup_outage_creates_nothing(self):
+        client=self._first_notice_client(side_effect=Error("FARMER_REFERENCE_LOOKUP_UNAVAILABLE"))
+        async with self.sessions.begin() as session:
+            with self.assertRaisesRegex(Error,"LOOKUP_UNAVAILABLE"):
+                await self._deliver_first_notice(session,client)
+            self.assertEqual(len((await session.execute(select(ledger.FarmerReference))).scalars().all()),0)
+            self.assertEqual(len((await session.execute(select(ledger.FarmerReferenceRequest))).scalars().all()),0)
+
+    async def test_notification_for_unreferenced_farmer_with_other_signed_identity_creates_nothing(self):
+        from dataclasses import replace
+        other=replace(self.snapshot,profile={**self.snapshot.profile,"fayda_fan_id":"0000000000000009"})
+        client=self._first_notice_client(return_value=other)
+        async with self.sessions.begin() as session:
+            with self.assertRaisesRegex(Error,"IDENTITY_MISMATCH"):
+                await self._deliver_first_notice(session,client)
+            self.assertEqual(len((await session.execute(select(ledger.FarmerReference))).scalars().all()),0)
+
+    async def test_notification_for_unreferenced_farmer_needs_the_identity_section(self):
+        client=self._first_notice_client()
+        async with self.sessions.begin() as session:
+            with self.assertRaisesRegex(Error,"INVALID_NOTIFICATION_SECTION"):
+                await self._deliver_wrong_section(session,client)
+            client.lookup.assert_not_called()
+
+    async def _deliver_wrong_section(self,session,client):
+        from unittest.mock import patch
+        payload=self._notification_payload("unknown-local")
+        payload.section_id="test_farmer_other_section"
+        with patch.dict(os.environ,{"COSS_FARMER_SOURCE_PARTNER_ID":"synthetic-source-partner"}),patch.object(native,"configured_lookup",return_value=client):
+            return await native.G2PChangeRequestWorkerService.get_component().create_change_request(
+                payload,session,source_partner_id="synthetic-source-partner",change_request_source=native.INGESTION_PIPELINE_SOURCE)
 
     async def test_notification_from_wrong_partner_cannot_lookup_or_create_request(self):
         from unittest.mock import patch
@@ -203,6 +265,114 @@ class NativeNotificationTests(NativeReferenceTests):
                 await native.G2PRegisterChangeRequestService.get_component().approve_change_request_from_awe_webhook(cr.change_request_id,session,approved_by="target-reviewer")
                 self.assertEqual(farmer.first_name,"Current signed FIN source")
                 self.assertIsNone(farmer.fayda_fan_id)
+
+
+    async def _notice_submission(self, partner="synthetic-source-partner", source="PARTNER", **identity):
+        """What the ingest worker builds for an ADD notice: a pipeline-only Farmer intake form with the
+        one identity section, saved through the registered intake service."""
+        from uuid import uuid4
+        from openg2p_registry_core.models import G2PIntakeFormDefinition, G2PIntakeFormUITab, G2PIntakeFormUITabSection
+        async with self.sessions.begin() as session:
+            if await session.get(G2PIntakeFormDefinition, "test_notice_form") is None:
+                session.add_all([
+                    G2PIntakeFormDefinition(form_id="test_notice_form", register_id=self.farmer_id, form_mnemonic="Test notice",
+                                            number_of_verifications=0, used_only_in_ingestion_pipeline=True),
+                    G2PIntakeFormUITab(tab_id="test_notice_tab", form_id="test_notice_form", tab_label="Notice", tab_order=1),
+                    G2PIntakeFormUITabSection(tab_section_id="test_notice_tab_section", tab_id="test_notice_tab",
+                                              section_id=self.section_id, section_order=1)])
+                await session.flush()
+            service = native.G2PIntakeFormDataService.get_component()
+            # The default reference is the day plus the second of the day plus one digit: two
+            # submissions made within a second would collide, so give each its own.
+            from unittest.mock import patch
+            with patch("openg2p_registry_core.helpers.application_reference_generator.generate_application_reference",
+                       side_effect=lambda *_: "notice-" + uuid4().hex):
+                submission = await service.create_submission_with_session(
+                    form_id="test_notice_form", register_id=self.farmer_id, submission_source=source, partner_id=partner,
+                    section_payloads=None, created_by="system", session=session)
+            row = {"internal_record_id": str(uuid4()), "farmer_id": self.snapshot.profile["farmer_id"],
+                   "fayda_fan_id": self.snapshot.profile["fayda_fan_id"], **identity}
+            await service.save_intake_form_submission_with_session(
+                submission_id=submission.submission_id, section_id=self.section_id, section_payload=[row],
+                section_register_id=self.farmer_id, form_id="test_notice_form", register_id=self.farmer_id,
+                created_by="system", session=session)
+            return submission.submission_id
+
+    async def _finalize_notice(self, submission_id, client):
+        from unittest.mock import patch
+        with patch.dict(os.environ, {"COSS_FARMER_SOURCE_PARTNER_ID": "synthetic-source-partner"}), \
+                patch.object(native, "configured_lookup", return_value=client):
+            async with self.sessions.begin() as session:
+                return await native.G2PIntakeFormDataService.get_component().finalize_submission_with_session(
+                    submission_id, session)
+
+    async def test_notification_intake_for_unreferenced_farmer_queues_add_and_closes_the_intake(self):
+        from openg2p_registry_core.models import G2PIntakeFormSubmission
+        client = self._first_notice_client()
+        submission_id = await self._notice_submission()
+        await self._finalize_notice(submission_id, client)
+        self.assertEqual(client.lookup.await_args.args, (self.snapshot.profile["farmer_id"], self.snapshot.profile["fayda_fan_id"]))
+        async with self.sessions() as session:
+            request = (await session.execute(select(ledger.FarmerReferenceRequest))).scalar_one()
+            reference = (await session.execute(select(ledger.FarmerReference))).scalar_one()
+            cr = await session.get(G2PRegisterChangeRequest, request.native_cr_id)
+            body = await session.get(G2PRegisterChangeRequestPayload, request.native_cr_id)
+            self.assertEqual((reference.state, request.action, cr.approval_status), ("PENDING", "ADD", "PENDING"))
+            self.assertEqual(body.change_payload[0]["first_name"], "Verified")
+            self.assertIsNone(await session.get(native.domain_models().G2PRegisterFarmer, reference.local_farmer_id))
+            self.assertIsNotNone(await session.get(ledger.FarmerWorkflowOutbox, cr.change_request_id))
+            submission = await session.get(G2PIntakeFormSubmission, submission_id)
+            # Closed without an approval, a deduplication run or a register write.
+            self.assertEqual((submission.approval_status, submission.draft_status), ("CANCELLED", "DRAFT"))
+            self.assertIn(cr.change_request_id, submission.remarks)
+
+    async def test_notification_intake_repeated_returns_the_pending_add(self):
+        client = self._first_notice_client()
+        for _ in range(2):
+            await self._finalize_notice(await self._notice_submission(), client)
+        async with self.sessions() as session:
+            self.assertEqual(len((await session.execute(select(ledger.FarmerReferenceRequest))).scalars().all()), 1)
+            self.assertEqual(len((await session.execute(select(G2PRegisterChangeRequest))).scalars().all()), 1)
+
+    async def test_notification_intake_from_wrong_partner_cannot_lookup_or_create_request(self):
+        client = self._first_notice_client()
+        submission_id = await self._notice_submission(partner="wrong-partner")
+        with self.assertRaises(Exception):
+            await self._finalize_notice(submission_id, client)
+        client.lookup.assert_not_awaited()
+        async with self.sessions() as session:
+            self.assertEqual(len((await session.execute(select(ledger.FarmerReference))).scalars().all()), 0)
+            self.assertEqual(len((await session.execute(select(G2PRegisterChangeRequest))).scalars().all()), 0)
+
+    async def test_notification_intake_not_from_the_pipeline_stays_change_request_only(self):
+        client = self._first_notice_client()
+        submission_id = await self._notice_submission(source="STAFF_PORTAL")
+        with self.assertRaises(Exception):
+            await self._finalize_notice(submission_id, client)
+        client.lookup.assert_not_awaited()
+        async with self.sessions() as session:
+            self.assertEqual(len((await session.execute(select(G2PRegisterChangeRequest))).scalars().all()), 0)
+
+    async def test_notification_intake_with_lookup_failure_creates_nothing(self):
+        for code in ("FARMER_REFERENCE_NOT_FOUND", "FARMER_REFERENCE_LOOKUP_UNAVAILABLE"):
+            client = self._first_notice_client(side_effect=Error(code))
+            submission_id = await self._notice_submission()
+            with self.subTest(code=code), self.assertRaises(Exception):
+                await self._finalize_notice(submission_id, client)
+        async with self.sessions() as session:
+            self.assertEqual(len((await session.execute(select(ledger.FarmerReference))).scalars().all()), 0)
+            self.assertEqual(len((await session.execute(select(G2PRegisterChangeRequest))).scalars().all()), 0)
+
+    async def test_notification_intake_after_rejected_add_stays_rejected(self):
+        client = self._first_notice_client()
+        await self._finalize_notice(await self._notice_submission(), client)
+        async with self.sessions.begin() as session:
+            request = (await session.execute(select(ledger.FarmerReferenceRequest))).scalar_one()
+            await native.onboarding_service().record_decision(session, request.native_cr_id, False)
+        with self.assertRaises(Exception):
+            await self._finalize_notice(await self._notice_submission(), client)
+        async with self.sessions() as session:
+            self.assertEqual(len((await session.execute(select(G2PRegisterChangeRequest))).scalars().all()), 1)
 
 
 

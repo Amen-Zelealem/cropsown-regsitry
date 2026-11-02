@@ -118,11 +118,31 @@ class OnboardingService:
             if existing.reference_id != reference.reference_id:
                 raise FarmerReferenceError("FARMER_REFERENCE_SUBMISSION_IDENTITY_CHANGED")
             return reference
+        await self._open_add_request(session, reference, source, requester)
+        session.add(FarmerSubmissionDependency(submission_id=submission_id, reference_id=reference.reference_id,
+            farmer_request_id=reference.pending_add_request_id, identity_binding=binding))
+        await session.flush()
+        return reference
+
+    async def _open_add_request(self, session, reference, source, requester):
+        """The one pending ADD request of a not yet approved reference."""
         if reference.state != "APPROVED" and not reference.pending_add_request_id:
             request = await self._create_request(session, reference, source, "ADD", requester=requester)
             reference.pending_add_request_id = request.request_id
-        session.add(FarmerSubmissionDependency(submission_id=submission_id, reference_id=reference.reference_id,
-            farmer_request_id=reference.pending_add_request_id, identity_binding=binding))
+
+    async def ensure_first_reference(self, session, source: VerifiedFarmer, *, requester="system"):
+        """Reference for a farmer announced by the Farmer registry, no intake needed.
+
+        Same trust path as a typed Farmer ID: a verified lookup result queues the
+        ADD request once; a repeat finds the pending reference and queues nothing.
+        """
+        reference = await self._reference(session, source, allow_create=True)
+        if reference.state == "REJECTED":
+            raise FarmerReferenceError("FARMER_REFERENCE_DEPENDENCY_REJECTED")
+        source_identifier = reference_identity(source.profile, preferred_identifier=reference.uid)[1]
+        if reference.uid != source_identifier and len(reference.uid) == len(source_identifier):
+            raise FarmerReferenceError("FARMER_REFERENCE_LOCAL_IDENTITY_UPDATE_REQUIRED")
+        await self._open_add_request(session, reference, source, requester)
         await session.flush()
         return reference
 
