@@ -15,7 +15,8 @@ from sqlalchemy import select, text
 
 from .lookup import VerifiedFarmer
 from .models import FarmerReference, FarmerReferenceRequest, FarmerSubmissionDependency, FarmerWorkflowOutbox
-from .profile import FarmerReferenceError, reference_identity, intake_identity, matches_declared_identity, model_identity, PROFILE_FIELDS
+from .profile import (FarmerReferenceError, reference_identity, intake_identity, matches_declared_identity,
+                      model_identity, PHOTO_DOCUMENT_FIELD, PHOTO_FIELD, PROFILE_FIELDS)
 
 
 def _json_profile(profile: dict) -> dict:
@@ -33,10 +34,38 @@ def _bad_value():
     raise FarmerReferenceError("FARMER_REFERENCE_INVALID_PROFILE_VALUE")
 
 
+def _source_part(profile: dict) -> dict:
+    # The local photo document is set by onboarding, not by the source, so a
+    # redelivered version compares without it.
+    return {field: value for field, value in profile.items() if field != PHOTO_DOCUMENT_FIELD}
+
+
 class OnboardingService:
-    def __init__(self, farmer_model, create_native_cr):
+    def __init__(self, farmer_model, create_native_cr, store_photo=None):
         self.farmer_model = farmer_model
         self.create_native_cr = create_native_cr
+        # async (session, FarmerPhoto) -> local document id
+        self.store_photo = store_photo
+
+    async def _with_photo(self, session, reference, source, profile: dict) -> dict:
+        """Point the request at a local copy of the photo when the photo changed.
+
+        The profile carries the photo's SHA-256. Unchanged: nothing to store.
+        Removed at the source: the local photo is cleared. New: its bytes are
+        stored in this registry's own document store first.
+        """
+        if PHOTO_FIELD not in profile:
+            return profile
+        farmer = await session.get(self.farmer_model, reference.local_farmer_id)
+        wanted = profile[PHOTO_FIELD]
+        if wanted == (getattr(farmer, PHOTO_FIELD, None) if farmer else None):
+            return profile
+        if wanted is None:
+            return {**profile, PHOTO_DOCUMENT_FIELD: None}
+        photo = getattr(source, "photo", None)
+        if photo is None or photo.sha256 != wanted or self.store_photo is None:
+            raise FarmerReferenceError("FARMER_REFERENCE_INVALID_PHOTO")
+        return {**profile, PHOTO_DOCUMENT_FIELD: await self.store_photo(session, photo)}
 
     async def _lock_source(self, session, source_system: str, farmer_id: str):
         # Serializes the absent-row case as well as subsequent reference updates.
@@ -53,7 +82,8 @@ class OnboardingService:
             raise FarmerReferenceError("FARMER_REFERENCE_VERIFIED_LOOKUP_REQUIRED")
         if (not source.source_system or not source.source_record_id or
                 type(source.source_version) is not int or source.source_version <= 0 or
-                not source.response_digest or set(source.profile) - PROFILE_FIELDS):
+                not source.response_digest or set(source.profile) - PROFILE_FIELDS or
+                PHOTO_DOCUMENT_FIELD in source.profile):
             raise FarmerReferenceError("FARMER_REFERENCE_INVALID_VERIFIED_SNAPSHOT")
         age = (datetime.now(timezone.utc) - source.fetched_at).total_seconds()
         if not -30 <= age <= 300:
@@ -147,7 +177,7 @@ class OnboardingService:
         return reference
 
     async def _create_request(self, session, reference, source, action, *, requester="system"):
-        profile = _json_profile(dict(source.profile))
+        profile = await self._with_photo(session, reference, source, _json_profile(dict(source.profile)))
         native_cr = await self.create_native_cr(session, reference.local_farmer_id, profile, action, created_by=requester)
         request = FarmerReferenceRequest(request_id=str(uuid4()), reference_id=reference.reference_id,
             native_cr_id=native_cr.change_request_id, source_version=source.source_version,
@@ -168,7 +198,7 @@ class OnboardingService:
             FarmerReferenceRequest.action == "UPDATE"))).scalar_one_or_none()
         if existing:
             # Rejected versions are also delivery-idempotent; no approval replay.
-            if existing.profile != _json_profile(dict(source.profile)):
+            if _source_part(existing.profile) != _json_profile(dict(source.profile)):
                 raise FarmerReferenceError("FARMER_REFERENCE_SOURCE_VERSION_CONFLICT")
             return existing
         return await self._create_request(session, reference, source, "UPDATE")

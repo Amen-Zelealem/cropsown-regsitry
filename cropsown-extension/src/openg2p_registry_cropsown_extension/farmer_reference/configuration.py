@@ -21,7 +21,7 @@ def configured_lookup():
             raise ValueError
         contract = RecordContract(**contract_data)
         paths = [contract.source_id, contract.farmer_id, contract.uid, contract.fin, contract.uid_query_field, contract.fin_query_field, contract.approved_at, contract.status, contract.source_query_field,
-                 *contract.profile_paths.values()]
+                 *contract.profile_paths.values(), *([contract.photo] if contract.photo is not None else [])]
         if not all(isinstance(path, str) and path and all(path.split(".")) for path in paths):
             raise ValueError
         config = LookupConfig(url=required("DCI_URL"), sender_id=required("SENDER_ID"),

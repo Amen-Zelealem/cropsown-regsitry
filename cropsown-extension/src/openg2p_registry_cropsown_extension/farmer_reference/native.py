@@ -93,8 +93,35 @@ async def create_native_request(session, local_id, profile, action, *, created_b
     return cr
 
 
+_PHOTO_EXTENSIONS = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}
+
+
+async def store_farmer_photo(session, photo):
+    """Keep the source's photo in this registry's own document store.
+
+    The farmer's record then names a local document, as a photo uploaded here
+    would. The object is written before the change request; if the transaction
+    rolls back it is an unreferenced object, never a record pointing nowhere.
+    """
+    from datetime import datetime
+    import io
+
+    from openg2p_registry_core.helpers.document import get_document_handler
+    from openg2p_registry_core.models import G2PRegistryDocument
+    from openg2p_registry_core.models.enum import DocumentBucket
+
+    store_id = await asyncio.to_thread(get_document_handler().upload, io.BytesIO(photo.data), len(photo.data),
+                                       DocumentBucket.DOCUMENTS, photo.content_type)
+    document = G2PRegistryDocument(document_store_id=store_id, bucket=DocumentBucket.DOCUMENTS,
+        source_filename=f"farmer-photo-{photo.sha256[:12]}.{_PHOTO_EXTENSIONS.get(photo.content_type, 'img')}",
+        created_by="farmer-reference", created_at=datetime.utcnow())
+    session.add(document)
+    await session.flush()
+    return document.document_id
+
+
 def onboarding_service():
-    return OnboardingService(domain_models().G2PRegisterFarmer, create_native_request)
+    return OnboardingService(domain_models().G2PRegisterFarmer, create_native_request, store_farmer_photo)
 
 
 async def record_native_decision(session, cr_id, approved):

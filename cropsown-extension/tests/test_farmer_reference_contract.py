@@ -39,12 +39,44 @@ class ProfileContractTests(unittest.TestCase):
 
     def test_source_allowlist_excludes_household_documents_business_and_grants(self):
         source = {"farmer_id": FARMER_ID, "approved_uid": UID, "first_name": "Trusted",
-                  "household_size": 4, "is_psnp_user": True, "education_level": "private",
+                  "household_size": 4, "is_psnp_user": True, "education_level": "BASIC",
                   "document_ids": ["secret"], "crop_year": "2026", "head_count": 12,
-                  "roles": ["admin"], "status": "APPROVED", "enumerator_user_id": "internal"}
+                  "roles": ["admin"], "status": "APPROVED", "enumerator_user_id": "internal",
+                  "last_authentication_status": "SUCCESS", "created_by": "staff", "last_approved_by": "staff",
+                  "record_image_document_id": "source-document"}
         before = deepcopy(source)
-        self.assertEqual(p.local_profile(source), {"farmer_id": FARMER_ID, "fayda_fan_id": UID, "first_name": "Trusted"})
+        # Farmer-tab details are copied; household, documents, business values,
+        # grants, the Fayda verification and staff names are not.
+        self.assertEqual(p.local_profile(source), {"farmer_id": FARMER_ID, "fayda_fan_id": UID, "first_name": "Trusted",
+                                                   "is_psnp_user": True, "education_level": "BASIC"})
         self.assertEqual(source, before)
+
+    def test_farmer_tab_details_keep_their_types(self):
+        source = {"farmer_id": FARMER_ID, "approved_uid": UID, "has_national_id": True, "estimated_age": 46,
+                  "disabled": False, "latitude": 9, "longitude": 38.7, "altitude": None,
+                  "marital_status": "MARRIED", "rid": "1" * 29,
+                  "phones": [{"phone_type": "PRIMARY", "phone_number": " 911111111 ", "country_code": "+251",
+                              "is_primary": True, "phone_e164": "+251911111111"}]}
+        profile = p.local_profile(source)
+        self.assertIs(profile["has_national_id"], True)
+        self.assertEqual(profile["estimated_age"], 46)
+        self.assertEqual(profile["latitude"], 9.0)
+        self.assertIsNone(profile["altitude"])
+        self.assertEqual(profile["phones"][0]["phone_number"], "911111111")
+
+    def test_farmer_tab_details_reject_wrong_types(self):
+        for field, value in (("has_national_id", "yes"), ("disabled", 1), ("estimated_age", True),
+                             ("estimated_age", 400), ("latitude", "9.1"), ("latitude", float("nan")),
+                             ("marital_status", 3), ("phones", {"phone_number": "1"}),
+                             ("phones", [{"phone_number": 911}]), ("phones", [{"pin": "1234"}]),
+                             ("phones", [{}] * 11)):
+            with self.subTest(field=field, value=value), self.assertRaises(p.FarmerReferenceError):
+                p.local_profile({field: value})
+
+    def test_photo_is_never_a_source_profile_value(self):
+        self.assertNotIn("record_image_document_id", p.SOURCE_TO_LOCAL_FIELDS.values())
+        self.assertNotIn("photo_sha256", p.SOURCE_TO_LOCAL_FIELDS.values())
+        self.assertEqual(p.local_profile({"photo": {"data": "x"}, "photo_sha256": "0" * 64}), {})
 
     def test_explicit_optional_clear_and_omission_are_distinct(self):
         before = self.approved()

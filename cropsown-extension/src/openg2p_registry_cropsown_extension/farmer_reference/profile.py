@@ -50,8 +50,44 @@ SOURCE_TO_LOCAL_FIELDS = {
     "zone_name": "zone_name",
     "woreda_name": "woreda_name",
     "kebele_name": "kebele_name",
+    # The rest of the Farmer tab (everything but the Fayda verification, the
+    # documents and the staff who created or approved the record), kept under
+    # the Farmer Registry's own names.
+    "has_national_id": "has_national_id",
+    "rid": "rid",
+    "odk_farmer_id": "odk_farmer_id",
+    "pula_id": "pula_id",
+    "language_spoken": "language_spoken",
+    "birth_date_ec": "birth_date_ec",
+    "estimated_age": "estimated_age",
+    "marital_status": "marital_status",
+    "education_level": "education_level",
+    "disabled": "disabled",
+    "disability_type": "disability_type",
+    "disability_severity": "disability_severity",
+    "source_of_income": "source_of_income",
+    "source_of_income_other": "source_of_income_other",
+    "is_psnp_user": "is_psnp_user",
+    "is_farmer": "is_farmer",
+    "farming_type": "farming_type",
+    "phones": "phones",
+    "plus_code": "plus_code",
+    "latitude": "latitude",
+    "longitude": "longitude",
+    "altitude": "altitude",
 }
-PROFILE_FIELDS = frozenset(SOURCE_TO_LOCAL_FIELDS.values()) | {"farmer_name"}
+# The photo is not a profile value: the lookup carries its bytes separately
+# (VerifiedFarmer.photo) and the profile only its SHA-256, so a stored request
+# stays small and an unchanged photo is recognised.
+PHOTO_FIELD = "photo_sha256"
+# The local copy of the photo, set by onboarding (never by the source).
+PHOTO_DOCUMENT_FIELD = "record_image_document_id"
+PROFILE_FIELDS = frozenset(SOURCE_TO_LOCAL_FIELDS.values()) | {"farmer_name", PHOTO_FIELD, PHOTO_DOCUMENT_FIELD}
+BOOLEAN_FIELDS = frozenset({"has_national_id", "disabled", "is_psnp_user", "is_farmer"})
+INTEGER_FIELDS = frozenset({"estimated_age"})
+NUMBER_FIELDS = frozenset({"latitude", "longitude", "altitude"})
+PHONE_KEYS = {"phone_type": str, "phone_number": str, "country_code": str, "is_primary": bool, "phone_e164": str}
+MAX_PHONES = 10
 NAME_FIELDS = ("first_name", "middle_name", "last_name")
 IDENTITY_FIELDS = frozenset({"farmer_id", "fayda_fan_id", "fayda_fin"})
 
@@ -156,7 +192,24 @@ def local_profile(source: Mapping, *, today: date | None = None) -> dict:
     result = {local: deepcopy(source[key]) for key, local in SOURCE_TO_LOCAL_FIELDS.items() if key in source}
     validate_identity_fields(result)
     for field, value in result.items():
-        if field == "geo_code_hierarchy_json":
+        if value is None:
+            continue
+        if field in BOOLEAN_FIELDS:
+            if type(value) is not bool:
+                raise FarmerReferenceError("FARMER_REFERENCE_INVALID_PROFILE_VALUE")
+        elif field in INTEGER_FIELDS:
+            if type(value) is not int or not 0 <= value <= 150:
+                raise FarmerReferenceError("FARMER_REFERENCE_INVALID_PROFILE_VALUE")
+        elif field in NUMBER_FIELDS:
+            if type(value) not in (int, float) or value != value or abs(value) > 100000:
+                raise FarmerReferenceError("FARMER_REFERENCE_INVALID_PROFILE_VALUE")
+            result[field] = float(value)
+        elif field == "phones":
+            result[field] = _phones(value)
+        elif field == PHOTO_FIELD:
+            if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value):
+                raise FarmerReferenceError("FARMER_REFERENCE_INVALID_PHOTO")
+        elif field == "geo_code_hierarchy_json":
             if value is not None and not isinstance(value, dict):
                 raise FarmerReferenceError("FARMER_REFERENCE_INVALID_GEOGRAPHY")
         elif field == "date_of_birth":
@@ -170,11 +223,29 @@ def local_profile(source: Mapping, *, today: date | None = None) -> dict:
                 if parsed > (today or date.today()):
                     raise FarmerReferenceError("FARMER_REFERENCE_INVALID_BIRTH_DATE")
                 result[field] = parsed
-        elif value is not None and not isinstance(value, str):
+        elif not isinstance(value, str):
             raise FarmerReferenceError("FARMER_REFERENCE_INVALID_PROFILE_VALUE")
         elif field == "mobile_number":
             result[field] = normalize_mobile(value)
     return result
+
+
+def _phones(value: object) -> list[dict]:
+    """The farmer's phone numbers: a short list of the Farmer Registry's phone rows."""
+    if not isinstance(value, list) or len(value) > MAX_PHONES:
+        raise FarmerReferenceError("FARMER_REFERENCE_INVALID_PROFILE_VALUE")
+    phones = []
+    for row in value:
+        if not isinstance(row, Mapping) or set(row) - set(PHONE_KEYS):
+            raise FarmerReferenceError("FARMER_REFERENCE_INVALID_PROFILE_VALUE")
+        phone = {}
+        for key, kind in PHONE_KEYS.items():
+            item = row.get(key)
+            if item is not None and type(item) is not kind:
+                raise FarmerReferenceError("FARMER_REFERENCE_INVALID_PROFILE_VALUE")
+            phone[key] = item.strip() if isinstance(item, str) else item
+        phones.append(phone)
+    return phones
 
 
 def merge_profile(approved: Mapping, proposed: Mapping) -> dict:

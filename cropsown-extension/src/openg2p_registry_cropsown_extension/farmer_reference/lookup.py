@@ -9,8 +9,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+import base64
+import binascii
 from hashlib import sha256
 import json
+import re
 from urllib.parse import urlsplit
 from uuid import uuid4
 
@@ -18,8 +21,13 @@ import httpx
 import jwt
 from jwt.utils import base64url_encode
 
-from .profile import (FarmerReferenceError, intake_identity, local_profile,
+from .profile import (FarmerReferenceError, PHOTO_FIELD, intake_identity, local_profile,
                       matches_declared_identity, normalize_farmer_id, normalize_fin, normalize_uid)
+
+# A signed response with the farmer's photo (2 MB at most, base64) still fits.
+MAX_RESPONSE_BYTES = 4 * 1024 * 1024
+MAX_PHOTO_BYTES = 2 * 1024 * 1024
+PHOTO_TYPES = {"image/jpeg": b"\xff\xd8\xff", "image/png": b"\x89PNG\r\n\x1a\n", "image/webp": b"RIFF"}
 
 
 def canonical(value: object) -> bytes:
@@ -46,6 +54,35 @@ class RecordContract:
     fin: str = "foundational_id"
     uid_query_field: str = "foundational_id"
     fin_query_field: str = "foundational_id"
+    # Where the record carries the farmer's photo ({content_type, sha256,
+    # data}); None when the source does not share it.
+    photo: str | None = None
+
+
+@dataclass(frozen=True)
+class FarmerPhoto:
+    content_type: str
+    sha256: str
+    data: bytes = field(repr=False)
+
+
+def verified_photo(value: object) -> FarmerPhoto | None:
+    """The source's photo, checked against its own hash and type; None is no photo."""
+    if value is None:
+        return None
+    try:
+        if (not isinstance(value, Mapping) or set(value) != {"content_type", "sha256", "data"} or
+                value["content_type"] not in PHOTO_TYPES or not isinstance(value["data"], str) or
+                not isinstance(value["sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", value["sha256"]) or
+                len(value["data"]) > (MAX_PHOTO_BYTES * 4) // 3 + 4):
+            raise ValueError
+        data = base64.b64decode(value["data"], validate=True)
+    except (ValueError, binascii.Error):
+        raise FarmerReferenceError("FARMER_REFERENCE_INVALID_PHOTO") from None
+    if (not data or len(data) > MAX_PHOTO_BYTES or sha256(data).hexdigest() != value["sha256"] or
+            not data.startswith(PHOTO_TYPES[value["content_type"]])):
+        raise FarmerReferenceError("FARMER_REFERENCE_INVALID_PHOTO")
+    return FarmerPhoto(value["content_type"], value["sha256"], data)
 
 
 @dataclass(frozen=True)
@@ -94,6 +131,8 @@ class VerifiedFarmer:
     profile: Mapping
     fetched_at: datetime
     response_digest: str
+    # The photo's bytes; the profile carries only its SHA-256.
+    photo: FarmerPhoto | None = None
 
 
 def _at(record: Mapping, path: str):
@@ -185,7 +224,7 @@ class FarmerLookup:
                     raw = bytearray()
                     async for chunk in response.aiter_bytes():
                         raw.extend(chunk)
-                        if len(raw) > 1024 * 1024:
+                        if len(raw) > MAX_RESPONSE_BYTES:
                             raise FarmerReferenceError("FARMER_REFERENCE_RESPONSE_TOO_LARGE")
             body = json.loads(raw)
         except (httpx.HTTPError, ValueError):
@@ -280,8 +319,13 @@ class FarmerLookup:
         if "fayda_fin" in actual:
             source_profile["approved_fin"] = actual["fayda_fin"]
         profile = local_profile(source_profile)
+        photo = None
+        if contract.photo and _has_path(record, contract.photo):
+            # Present: a photo or an explicit "no photo". Absent: not shared.
+            photo = verified_photo(_at(record, contract.photo))
+            profile[PHOTO_FIELD] = photo.sha256 if photo else None
         return VerifiedFarmer(cfg.source_id, source_id, int(approved_at.timestamp() * 1_000_000),
-                              profile, now, sha256(signed).hexdigest())
+                              profile, now, sha256(signed).hexdigest(), photo)
 
 
 def _has_path(record: Mapping, path: str) -> bool:
