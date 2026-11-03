@@ -53,7 +53,7 @@ def client():
         status="farmer_reference.record_status", photo="farmer_reference.photo",
         profile_paths={name: "farmer_reference." + name for name in (
             "first_name", "marital_status", "education_level", "disabled", "estimated_age", "is_psnp_user",
-            "latitude", "phones", "email", "rid")})
+            "latitude", "phones", "email", "rid", "income_sources")})
     return lookup.FarmerLookup(cfg, contract)
 
 
@@ -63,6 +63,7 @@ def signed(client, request, **block):
                  "first_name": "Abebe", "marital_status": "MARRIED", "education_level": "BASIC",
                  "disabled": False, "estimated_age": 46, "is_psnp_user": True, "latitude": 9.1,
                  "email": "abebe@example.org", "rid": "1" * 29,
+                 "income_sources": ["SOI_CROP", " SOI_LIVESTOCK", "SOI_CROP"],
                  "phones": [{"phone_type": "PRIMARY", "phone_number": "911111111", "country_code": "+251",
                              "is_primary": True, "phone_e164": "+251911111111"}],
                  "photo": photo_value()}
@@ -92,6 +93,7 @@ def test_signed_lookup_carries_the_farmer_tab_and_the_photo(client):
     assert result.profile["disabled"] is False and result.profile["is_psnp_user"] is True
     assert result.profile["estimated_age"] == 46 and result.profile["latitude"] == 9.1
     assert result.profile["phones"][0]["phone_e164"] == "+251911111111"
+    assert result.profile["income_sources"] == ["SOI_CROP", "SOI_LIVESTOCK"]
     assert result.profile["photo_sha256"] == sha256(JPEG).hexdigest()
     assert "photo" not in result.profile and "record_image_document_id" not in result.profile
     assert result.photo.data == JPEG and result.photo.content_type == "image/jpeg"
@@ -104,6 +106,12 @@ def test_explicit_no_photo_and_unshared_photo_are_distinct(client):
     request = unshared.build_request(FARMER, FAN, now=NOW)
     result = unshared.verify_response(signed(unshared, request), request, FARMER, FAN, now=NOW)
     assert "photo_sha256" not in result.profile and result.photo is None
+
+
+@pytest.mark.parametrize("bad", ["SOI_CROP", [1], [""], ["x" * 101], ["SOI"] * 21])
+def test_income_sources_must_be_a_short_list_of_codes(client, bad):
+    with pytest.raises(Error, match="INVALID_PROFILE_VALUE"):
+        verify(client, income_sources=bad)
 
 
 @pytest.mark.parametrize("bad", [

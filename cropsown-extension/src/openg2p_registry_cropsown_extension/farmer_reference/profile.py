@@ -67,6 +67,7 @@ SOURCE_TO_LOCAL_FIELDS = {
     "disability_severity": "disability_severity",
     "source_of_income": "source_of_income",
     "source_of_income_other": "source_of_income_other",
+    "income_sources": "income_sources",
     "is_psnp_user": "is_psnp_user",
     "is_farmer": "is_farmer",
     "farming_type": "farming_type",
@@ -88,6 +89,7 @@ INTEGER_FIELDS = frozenset({"estimated_age"})
 NUMBER_FIELDS = frozenset({"latitude", "longitude", "altitude"})
 PHONE_KEYS = {"phone_type": str, "phone_number": str, "country_code": str, "is_primary": bool, "phone_e164": str}
 MAX_PHONES = 10
+MAX_INCOME_SOURCES = 20
 NAME_FIELDS = ("first_name", "middle_name", "last_name")
 IDENTITY_FIELDS = frozenset({"farmer_id", "fayda_fan_id", "fayda_fin"})
 
@@ -206,6 +208,8 @@ def local_profile(source: Mapping, *, today: date | None = None) -> dict:
             result[field] = float(value)
         elif field == "phones":
             result[field] = _phones(value)
+        elif field == "income_sources":
+            result[field] = _codes(value, MAX_INCOME_SOURCES)
         elif field == PHOTO_FIELD:
             if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value):
                 raise FarmerReferenceError("FARMER_REFERENCE_INVALID_PHOTO")
@@ -228,6 +232,19 @@ def local_profile(source: Mapping, *, today: date | None = None) -> dict:
         elif field == "mobile_number":
             result[field] = normalize_mobile(value)
     return result
+
+
+def _codes(value: object, limit: int) -> list[str]:
+    """A short list of answer codes (a multi-select field), stripped, each kept once, in order."""
+    if not isinstance(value, list) or len(value) > limit:
+        raise FarmerReferenceError("FARMER_REFERENCE_INVALID_PROFILE_VALUE")
+    codes = []
+    for item in value:
+        if not isinstance(item, str) or not item.strip() or len(item) > 100:
+            raise FarmerReferenceError("FARMER_REFERENCE_INVALID_PROFILE_VALUE")
+        if item.strip() not in codes:
+            codes.append(item.strip())
+    return codes
 
 
 def _phones(value: object) -> list[dict]:

@@ -74,6 +74,7 @@ class G2PFarmer:
     disability_severity: Mapped[str] = mapped_column(String, nullable=True)
     source_of_income: Mapped[str] = mapped_column(String, nullable=True)
     source_of_income_other: Mapped[str] = mapped_column(String, nullable=True)
+    income_sources: Mapped[list] = mapped_column(JSON, nullable=True)
     is_psnp_user: Mapped[bool] = mapped_column(Boolean, nullable=True)
     is_farmer: Mapped[bool] = mapped_column(Boolean, nullable=True)
     farming_type: Mapped[str] = mapped_column(String, nullable=True)

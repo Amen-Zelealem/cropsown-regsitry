@@ -61,6 +61,7 @@ class G2PSchemaFarmer:
     disability_severity: Optional[str] = None
     source_of_income: Optional[str] = None
     source_of_income_other: Optional[str] = None
+    income_sources: Optional[list[str]] = None
     is_psnp_user: Optional[bool] = None
     is_farmer: Optional[bool] = None
     farming_type: Optional[str] = None
