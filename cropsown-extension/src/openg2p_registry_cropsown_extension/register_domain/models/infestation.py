@@ -24,6 +24,7 @@ class G2PInfestation:
     # ── Plot: each line records the land it was worked on (Gen1 puts
     # land_info_id and its attributes on the line, not the header) ───────────
     land_id: Mapped[str] = mapped_column(String, nullable=True)
+    season: Mapped[str] = mapped_column(String, nullable=True)                # Attribute lookup (CROP_SEASON)
     commodity: Mapped[str] = mapped_column(String, nullable=True)             # Attribute lookup (CROP_COMMODITY)
     growth_stage: Mapped[GrowthStageEnum] = mapped_column(String, nullable=True) # GrowthStageEnum
     cluster_status: Mapped[str] = mapped_column(String, nullable=True)

@@ -19,6 +19,7 @@ class G2PSchemaHarvest:
     sync_id: Optional[str] = None
     harvest_date_ec: Optional[str] = None
     land_id: Optional[str] = None
+    season: Optional[str] = None
     commodity: Optional[str] = None
     land_area: Optional[float] = None
     cluster_status: Optional[list[str]] = None
