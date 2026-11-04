@@ -66,6 +66,118 @@
       "to_section": "cropsown_cropsown_record_section_01",
       "mechanism": "approved_farmer_projection",
       "reason": "Source-owned Farmer name stays a registered read-only projection; intake captures identifiers instead of a duplicate name"
+    },
+    {
+      "from_section": "cropsown_planning_details_section_01",
+      "path": "start_month",
+      "mechanism": "retired_field",
+      "replaced_by": "start_gc",
+      "reason": "The season is entered once, as the Start and End date on the Ethiopian calendar picker; the day and month are worked out from those dates on save and the database column stays"
+    },
+    {
+      "from_section": "cropsown_planning_details_section_01",
+      "path": "start_day",
+      "mechanism": "retired_field",
+      "replaced_by": "start_gc",
+      "reason": "The season is entered once, as the Start and End date on the Ethiopian calendar picker; the day and month are worked out from those dates on save and the database column stays"
+    },
+    {
+      "from_section": "cropsown_planning_details_section_01",
+      "path": "end_month",
+      "mechanism": "retired_field",
+      "replaced_by": "end_gc",
+      "reason": "The season is entered once, as the Start and End date on the Ethiopian calendar picker; the day and month are worked out from those dates on save and the database column stays"
+    },
+    {
+      "from_section": "cropsown_planning_details_section_01",
+      "path": "end_day",
+      "mechanism": "retired_field",
+      "replaced_by": "end_gc",
+      "reason": "The season is entered once, as the Start and End date on the Ethiopian calendar picker; the day and month are worked out from those dates on save and the database column stays"
+    },
+    {
+      "from_section": "cropsown_cultivation_details_section_01",
+      "path": "start_month",
+      "mechanism": "retired_field",
+      "replaced_by": "start_gc",
+      "reason": "The season is entered once, as the Start and End date on the Ethiopian calendar picker; the day and month are worked out from those dates on save and the database column stays"
+    },
+    {
+      "from_section": "cropsown_cultivation_details_section_01",
+      "path": "start_day",
+      "mechanism": "retired_field",
+      "replaced_by": "start_gc",
+      "reason": "The season is entered once, as the Start and End date on the Ethiopian calendar picker; the day and month are worked out from those dates on save and the database column stays"
+    },
+    {
+      "from_section": "cropsown_cultivation_details_section_01",
+      "path": "end_month",
+      "mechanism": "retired_field",
+      "replaced_by": "end_gc",
+      "reason": "The season is entered once, as the Start and End date on the Ethiopian calendar picker; the day and month are worked out from those dates on save and the database column stays"
+    },
+    {
+      "from_section": "cropsown_cultivation_details_section_01",
+      "path": "end_day",
+      "mechanism": "retired_field",
+      "replaced_by": "end_gc",
+      "reason": "The season is entered once, as the Start and End date on the Ethiopian calendar picker; the day and month are worked out from those dates on save and the database column stays"
+    },
+    {
+      "from_section": "cropsown_cultivation_cluster_details_section_01",
+      "path": "start_month",
+      "mechanism": "retired_field",
+      "replaced_by": "start_gc",
+      "reason": "The season is entered once, as the Start and End date on the Ethiopian calendar picker; the day and month are worked out from those dates on save and the database column stays"
+    },
+    {
+      "from_section": "cropsown_cultivation_cluster_details_section_01",
+      "path": "start_day",
+      "mechanism": "retired_field",
+      "replaced_by": "start_gc",
+      "reason": "The season is entered once, as the Start and End date on the Ethiopian calendar picker; the day and month are worked out from those dates on save and the database column stays"
+    },
+    {
+      "from_section": "cropsown_cultivation_cluster_details_section_01",
+      "path": "end_month",
+      "mechanism": "retired_field",
+      "replaced_by": "end_gc",
+      "reason": "The season is entered once, as the Start and End date on the Ethiopian calendar picker; the day and month are worked out from those dates on save and the database column stays"
+    },
+    {
+      "from_section": "cropsown_cultivation_cluster_details_section_01",
+      "path": "end_day",
+      "mechanism": "retired_field",
+      "replaced_by": "end_gc",
+      "reason": "The season is entered once, as the Start and End date on the Ethiopian calendar picker; the day and month are worked out from those dates on save and the database column stays"
+    },
+    {
+      "from_section": "cropsown_cluster_details_section_01",
+      "path": "start_month",
+      "mechanism": "retired_field",
+      "replaced_by": "start_gc",
+      "reason": "The season is entered once, as the Start and End date on the Ethiopian calendar picker; the day and month are worked out from those dates on save and the database column stays"
+    },
+    {
+      "from_section": "cropsown_cluster_details_section_01",
+      "path": "start_day",
+      "mechanism": "retired_field",
+      "replaced_by": "start_gc",
+      "reason": "The season is entered once, as the Start and End date on the Ethiopian calendar picker; the day and month are worked out from those dates on save and the database column stays"
+    },
+    {
+      "from_section": "cropsown_cluster_details_section_01",
+      "path": "end_month",
+      "mechanism": "retired_field",
+      "replaced_by": "end_gc",
+      "reason": "The season is entered once, as the Start and End date on the Ethiopian calendar picker; the day and month are worked out from those dates on save and the database column stays"
+    },
+    {
+      "from_section": "cropsown_cluster_details_section_01",
+      "path": "end_day",
+      "mechanism": "retired_field",
+      "replaced_by": "end_gc",
+      "reason": "The season is entered once, as the Start and End date on the Ethiopian calendar picker; the day and month are worked out from those dates on save and the database column stays"
     }
   ]
 }
