@@ -1,9 +1,4 @@
-"""Land ID, Season and Crop lead every lifecycle table of the Crop Sown register.
-
-The seed file zzzzzzzzz_lifecycle_context_columns.sql reorders each table's
-visible columns and adds the missing Season column to Harvest and Infestation;
-the models and schemas carry a matching `season` column for those two.
-"""
+"""Land ID, Season and Crop lead every lifecycle table."""
 
 import re
 from pathlib import Path
@@ -12,7 +7,6 @@ PACKAGE_DIR = Path(__file__).resolve().parents[1] / "src" / "openg2p_registry_cr
 SEED = (PACKAGE_DIR / "meta_data" / "register-metadata" / "zzzzzzzzz_lifecycle_context_columns.sql").read_text(encoding="utf-8")
 BASE = (PACKAGE_DIR / "meta_data" / "register-metadata" / "g2p_register_sections.sql").read_text(encoding="utf-8")
 
-# section -> (table id, the column that holds the crop)
 TABLES = {
     "cropsown_planning_details_section_01": ("cs_planning_details_table", "commodity"),
     "cropsown_cultivation_details_section_01": ("cs_cultivation_details_table", "commodity"),

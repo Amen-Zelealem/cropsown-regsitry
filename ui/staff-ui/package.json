@@ -2,13 +2,13 @@
   "name": "openg2p-cropsown-registry-staff-ui",
   "version": "0.0.0-develop",
   "private": true,
-  "description": "Crop Sown Staff UI — fetch staff-ui from GitHub into .app/; deltas via overrides/.",
+  "description": "Crop Sown Staff UI \u2014 fetch staff-ui from GitHub into .app/; deltas via overrides/.",
   "scripts": {
     "postinstall": "bash ./scripts/materialize-staff-ui.sh && bash ./scripts/ensure-app-deps.sh",
     "reset": "bash ./scripts/reset-app.sh",
-    "dev": "bash ./scripts/materialize-staff-ui.sh && bash ./scripts/ensure-app-deps.sh && npm run dev --prefix .app",
-    "build": "bash ./scripts/materialize-staff-ui.sh && bash ./scripts/ensure-app-deps.sh && npm run build --prefix .app",
-    "start": "bash ./scripts/materialize-staff-ui.sh && bash ./scripts/ensure-app-deps.sh && npm run start --prefix .app"
+    "dev": "node init && bash ./scripts/materialize-staff-ui.sh && bash ./scripts/ensure-app-deps.sh && npm run dev --prefix .app",
+    "build": "node init && bash ./scripts/materialize-staff-ui.sh && bash ./scripts/ensure-app-deps.sh && npm run build --prefix .app",
+    "start": "node init && bash ./scripts/materialize-staff-ui.sh && bash ./scripts/ensure-app-deps.sh && npm run start --prefix .app"
   },
   "devDependencies": {
     "@types/react": "^19.2.0",

@@ -17,7 +17,7 @@
   var FIELDS = {
     land:   { label: /^Land ID$/, tag: "input" },
     season: { label: /^Season$/, tag: "select" },
-    crop:   { label: /^(Crop|Actual Crop Name|Crop type affected)$/, tag: "select" }
+    crop:   { label: /^(Crop|Actual Crop Name|Crop type affected|Primary commodity)$/i, tag: "select" }
   };
   var nativeFetch = window.fetch;
   var cache = { rows: {}, submissionId: null };

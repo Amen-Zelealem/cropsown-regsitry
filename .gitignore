@@ -105,8 +105,6 @@ celerybeat.pid
 *.sage.py
 
 # Environments
-.env
-.env.*
 !.env.example
 .envrc
 .venv
@@ -160,7 +158,6 @@ cython_debug/
 
 # IDEs
 .idea/
-.vscode/
 *.swp
 *.swo
 *~
@@ -217,3 +214,5 @@ local/
 
 # Generated verification and deployment receipts
 ci-output/
+config.bat
+node_modules

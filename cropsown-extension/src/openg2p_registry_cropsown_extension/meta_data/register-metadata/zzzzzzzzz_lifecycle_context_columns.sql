@@ -1,30 +1,6 @@
--- Land ID, Season and Crop identify one plot's crop cycle, so every lifecycle
--- table of the Crop Sown register shows them first. Before this file only
--- Planning and Cultivation showed all three: Sowing lacked Season, Harvest
--- lacked Season and Crop, Infestation lacked Season, and both cluster tables
--- lacked Crop.
---
---   section                                  table id                          crop column
---   cropsown_planning_details_section_01     cs_planning_details_table         commodity
---   cropsown_cultivation_details_section_01  cs_cultivation_details_table      commodity
---   cropsown_cultivation_cluster_details_..  cs_cultivation_cluster_details_t.  primary_commodity
---   cropsown_sowing_details_section_01       cs_sowing_details_table           commodity
---   cropsown_harvest_details_section_01      cs_harvest_details_table          commodity
---   cropsown_infestation_details_section_01  cs_infestation_details_table       commodity
---   cropsown_cluster_details_section_01      cs_cluster_details_table          primary_commodity
---
--- Harvest and Infestation had no Season column at all: this file adds the
--- Season select (the same CROP_SEASON list the other tables use) right after
--- Land ID, and the models/schemas carry a matching nullable `season` column.
--- The visible columns of each table become Land ID, Season, Crop, then the
--- table's own columns in their existing order.
---
--- Sorts after every earlier file that rewrites the section JSON (the base
--- upsert, field rules, identity overlays) and just before the required-rows
--- overlay, which only sets widget-required flags and so does not care about
--- column order or the Season column added here.
--- Idempotent: it only moves the three keys to the front and adds Season when
--- it is absent, so every install and upgrade can re-run it.
+-- Land ID, Season and Crop lead the visible columns of every lifecycle table.
+-- Adds the Season column to Harvest and Infestation, which had none.
+-- Idempotent; fails the seed if a table does not lead with the three keys.
 CREATE OR REPLACE FUNCTION pg_temp.coss_lifecycle_context(node jsonb, table_id text, crop_key text)
 RETURNS jsonb LANGUAGE plpgsql AS $$
 DECLARE
@@ -44,7 +20,6 @@ BEGIN
       INTO result FROM jsonb_each(node);
     IF node->>'widget-id' = table_id AND node->>'widget' IN ('table', 'dialog-table')
        AND jsonb_typeof(node->'widget-data-columns') = 'array' THEN
-      -- Season column: add it straight after Land ID when the table has none.
       IF NOT EXISTS (SELECT 1 FROM jsonb_array_elements(node->'widget-data-columns') c
                      WHERE c->>'column-key' = 'season') THEN
         result := jsonb_set(result, '{widget-data-columns}', (
@@ -58,7 +33,6 @@ BEGIN
                               WHERE column_node->>'column-key' = 'land_id'), 1)
           ) merged));
       END IF;
-      -- Visible columns: Land ID, Season, Crop first, then the rest as they were.
       result := jsonb_set(result, '{widget-data-visible-columns}',
         (SELECT jsonb_agg(to_jsonb(k) ORDER BY ord) FROM (
            SELECT k, ord FROM unnest(context_keys) WITH ORDINALITY AS c(k, ord)
@@ -88,8 +62,6 @@ FROM (VALUES
 ) AS v(section_id, table_id, crop_key)
 WHERE s.section_id = v.section_id AND s.section_ui_schema IS NOT NULL;
 
--- Check: fail the seed loudly if any table does not lead with the three keys,
--- or one of them has no column to show.
 DO $$
 DECLARE expected record; table_node jsonb; lead jsonb;
 BEGIN
